@@ -8,6 +8,11 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.stem import WordNetLemmatizer
 
+nltk.download('stopwords')
+nltk.download('punkt')
+nltk.download('punkt_tab')
+nltk.download('wordnet')
+
 
 # Preprocess text function (tokenization, stopword removal, lemmatization)
 def preprocess_text(text):
