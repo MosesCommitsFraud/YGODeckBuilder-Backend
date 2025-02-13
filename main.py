@@ -2,10 +2,16 @@ import os
 import json
 import requests
 from collections import Counter
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List
+
+# ---------------------------
+# Existing Deck Builder Code
+# ---------------------------
 
 # Global cache for card data
 CARD_CACHE = {}
-
 
 def load_card_cache(cache_filename="cards.json"):
     """
@@ -27,7 +33,6 @@ def load_card_cache(cache_filename="cards.json"):
     CARD_CACHE = {str(card["id"]): card for card in data["data"]}
     return CARD_CACHE
 
-
 def get_card_info(card_id):
     """
     Retrieve card information from the local cache.
@@ -35,7 +40,6 @@ def get_card_info(card_id):
     if not CARD_CACHE:
         load_card_cache()
     return CARD_CACHE.get(card_id)
-
 
 # ---------------------------
 # Parsing .ydk files
@@ -68,7 +72,6 @@ def parse_ydk_file(file_path):
                 side_deck.append(line)
     return main_deck, extra_deck, side_deck
 
-
 # ---------------------------
 # Historical Composition Analysis
 # ---------------------------
@@ -96,7 +99,6 @@ def compute_average_deck_composition(deck_files):
         return 0, 0, 0
     return total_monsters / deck_count, total_spells / deck_count, total_traps / deck_count
 
-
 def compute_card_deck_composition(card_id, deck_files):
     """
     For decks that include card_id in the main deck, compute the average composition.
@@ -123,7 +125,6 @@ def compute_card_deck_composition(card_id, deck_files):
         return (0, 0, 0)
     return (total_monsters / count, total_spells / count, total_traps / count)
 
-
 def compute_average_deck_for_input_cards(input_cards, deck_files):
     """
     Averages the deck composition for each input card over historical decks.
@@ -140,7 +141,6 @@ def compute_average_deck_for_input_cards(input_cards, deck_files):
     if count == 0:
         return compute_average_deck_composition(deck_files)
     return (totals[0] / count, totals[1] / count, totals[2] / count)
-
 
 # ---------------------------
 # Recommendation functions
@@ -159,7 +159,6 @@ def get_card_neighbors(target_card, deck_files):
                     neighbor_counter[card] += 1
     return neighbor_counter
 
-
 def get_section_frequency(deck_files, section):
     """
     Returns a frequency counter for all cards appearing in the specified section ('main', 'extra', or 'side')
@@ -175,7 +174,6 @@ def get_section_frequency(deck_files, section):
         elif section == "side":
             freq.update(side_deck)
     return freq
-
 
 # ---------------------------
 # Dropoff check helper:
@@ -199,7 +197,6 @@ def fill_from_sorted_recommendations(sorted_recs, desired_size, dropoff_ratio=0.
             deck_section.append(card)
     return deck_section
 
-
 # ---------------------------
 # Copy Count Analysis
 # ---------------------------
@@ -219,7 +216,6 @@ def compute_average_copy(card_id, deck_files):
         return 1
     avg = total_copies / deck_count
     return max(1, min(3, round(avg)))
-
 
 def adjust_main_deck_copy_counts(unique_deck, deck_files, desired_size):
     """
@@ -243,7 +239,6 @@ def adjust_main_deck_copy_counts(unique_deck, deck_files, desired_size):
         new_deck.append(card)
         idx += 1
     return new_deck
-
 
 # ---------------------------
 # Build Main Deck
@@ -309,7 +304,6 @@ def build_main_deck(input_cards, deck_files, desired_main_deck_size=40, dropoff_
     final_main = adjust_main_deck_copy_counts(unique_main, deck_files, desired_main_deck_size)
     return final_main
 
-
 # ---------------------------
 # Build Extra Deck
 # ---------------------------
@@ -331,7 +325,6 @@ def build_extra_deck(deck_files, desired_extra_deck_size=15, dropoff_ratio=0.3):
     extra_deck = fill_from_sorted_recommendations(sorted_recs, desired_extra_deck_size, dropoff_ratio)
     return extra_deck
 
-
 # ---------------------------
 # Build Side Deck
 # ---------------------------
@@ -343,7 +336,6 @@ def build_side_deck(deck_files, desired_side_deck_size=15, dropoff_ratio=0.3):
     sorted_recs = sorted(freq_side.items(), key=lambda x: x[1], reverse=True)
     side_deck = fill_from_sorted_recommendations(sorted_recs, desired_side_deck_size, dropoff_ratio)
     return side_deck
-
 
 # ---------------------------
 # Banlist & Deck Validation (Ruleset)
@@ -359,7 +351,6 @@ def fetch_banlist():
     else:
         print("Failed to retrieve banlist.")
         return None
-
 
 def validate_deck(main_deck, side_deck, extra_deck):
     """
@@ -424,7 +415,6 @@ def validate_deck(main_deck, side_deck, extra_deck):
             if not any(x in ctype for x in ["fusion", "synchro", "xyz", "link"]):
                 errors.append(f"Extra Deck card '{info.get('name')}' is not a Fusion, Synchro, Xyz, or Link monster.")
 
-    # Output results.
     if errors:
         print("\n--- Deck Validation Errors ---")
         for error in errors:
@@ -433,7 +423,6 @@ def validate_deck(main_deck, side_deck, extra_deck):
         print("\nDeck validation complete: The deck complies with official rules.")
 
     return errors
-
 
 # ---------------------------
 # Export Deck to .ydk File
@@ -469,55 +458,46 @@ def export_deck_to_ydk(deck, deck_name):
             f.write(f"{card}\n")
     print(f"\nDeck exported to {filename}")
 
-
 # ---------------------------
-# Main Execution with Console Input
+# FastAPI Integration
 # ---------------------------
-if __name__ == "__main__":
-    # Load card data cache.
-    load_card_cache()
+app = FastAPI()
 
-    # Use the "ydk_download" folder (in the current directory) for historical deck files.
+class DeckRequest(BaseModel):
+    input_cards: List[str]
+
+@app.post("/build-deck")
+def build_deck_endpoint(request: DeckRequest):
+    # Define desired deck sizes
+    MAIN_DECK_SIZE = 40
+    EXTRA_DECK_SIZE = 15
+    SIDE_DECK_SIZE = 15
+
+    # Use the "ydk_download" folder in the current directory for historical deck files
     deck_directory = os.path.join(os.getcwd(), "ydk_download")
     if not os.path.isdir(deck_directory):
-        print(f"Directory '{deck_directory}' not found. Please ensure it exists.")
-        exit(1)
-
+        raise HTTPException(status_code=500, detail=f"Directory '{deck_directory}' not found.")
     deck_files = [os.path.join(deck_directory, f) for f in os.listdir(deck_directory) if f.endswith('.ydk')]
     if not deck_files:
-        print("No .ydk files found in the specified directory.")
-        exit(1)
+        raise HTTPException(status_code=500, detail="No .ydk files found in the historical decks directory.")
 
-    # Get starting main deck card IDs from the console (comma-separated).
-    input_cards_raw = input("Enter the starting main deck card IDs (comma separated): ")
-    input_cards = [card.strip() for card in input_cards_raw.split(",") if card.strip()]
+    # Build the decks
+    new_main = build_main_deck(request.input_cards, deck_files, desired_main_deck_size=MAIN_DECK_SIZE, dropoff_ratio=0.3)
+    new_extra = build_extra_deck(deck_files, desired_extra_deck_size=EXTRA_DECK_SIZE, dropoff_ratio=0.3)
+    new_side = build_side_deck(deck_files, desired_side_deck_size=SIDE_DECK_SIZE, dropoff_ratio=0.3)
 
-    # Build the deck sections.
-    new_main = build_main_deck(input_cards, deck_files, desired_main_deck_size=40, dropoff_ratio=0.3)
-    new_extra = build_extra_deck(deck_files, desired_extra_deck_size=15, dropoff_ratio=0.3)
-    new_side = build_side_deck(deck_files, desired_side_deck_size=15, dropoff_ratio=0.3)
+    errors = validate_deck(new_main, new_side, new_extra)
 
-    # Validate the complete deck using the official rules.
-    validate_deck(new_main, new_side, new_extra)
-
-    # Display the built decks.
-    print("\nBuilt Main Deck (card IDs):")
-    for card in new_main:
-        print(card)
-
-    print("\nBuilt Extra Deck (card IDs):")
-    for card in new_extra:
-        print(card)
-
-    print("\nBuilt Side Deck (card IDs):")
-    for card in new_side:
-        print(card)
-
-    # Ask for a deck name and export the deck.
-    deck_name = input("\nEnter the name for the new deck: ").strip()
-    final_deck = {
+    return {
         "main": new_main,
         "extra": new_extra,
-        "side": new_side
+        "side": new_side,
+        "errors": errors
     }
-    export_deck_to_ydk(final_deck, deck_name)
+
+# ---------------------------
+# Main Execution: Run API if executed directly
+# ---------------------------
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
