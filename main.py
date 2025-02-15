@@ -295,7 +295,7 @@ def generate_deck(model, data, seed_card_ids=None, threshold=0.5, synergy_factor
     selected_card_ids = [node_id_to_card_id[idx] for idx in selected_nodes]
 
     # Partition cards into Main and Extra decks.
-    extra_keywords = {"XYZ", "Synchro", "Fusion", "Link"}
+    extra_keywords = {"XYZ", "Synchro", "Fusion", "Link", "Pendulum"}
     main_deck = []
     extra_deck = []
     for card_id in selected_card_ids:
