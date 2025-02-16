@@ -23,7 +23,7 @@ CACHE_FILE = "graph_cache.pt"
 def build_graph():
     print(">> Building graph from scratch...")
 
-    # --- Load card data from cards.json ---
+    # Load card data from cards.json
     with open("cards.json", "r") as f:
         cards_data = json.load(f)["data"]
 
@@ -31,7 +31,7 @@ def build_graph():
     card_name_to_id = {card["name"].lower(): str(card["id"]) for card in cards_data}
     card_info = {str(card["id"]): card for card in cards_data}
 
-    # --- Initialize BERT NER Pipeline ---
+    # Initialize BERT NER Pipeline.
     print(">> Initializing BERT NER pipeline...")
     ner_pipe = pipeline("token-classification", model="dslim/bert-base-NER", grouped_entities=True)
     tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER")
@@ -46,7 +46,7 @@ def build_graph():
                 mentioned_ids.add(card_name_to_id[entity_text])
         return mentioned_ids
 
-    # --- Build Co-occurrence dictionary from deck files ---
+    # Build co-occurrence dictionary from deck files.
     decks_folder = "ydk_download"
     def parse_ydk_inner(file_path):
         sections = {"main": [], "extra": [], "side": []}
@@ -82,7 +82,7 @@ def build_graph():
 
     co_occurrence, total_decks = build_co_occurrence(decks_folder)
 
-    # --- Build weighted graph edges ---
+    # Build weighted graph edges.
     alpha = 1.0  # Mention weight
     beta = 0.5   # Co-occurrence frequency weight
     gamma = 0.1  # Shared attribute bonus
@@ -107,7 +107,7 @@ def build_graph():
 
     print(f">> Constructed graph with {len(graph_edges)} weighted edges.")
 
-    # --- Build PyTorch Geometric Data Object ---
+    # Build PyTorch Geometric Data Object.
     attributes = list({card.get("attribute", "None") for card in cards_data})
     attribute_to_idx = {attr: i for i, attr in enumerate(attributes)}
     node_features = []
@@ -176,10 +176,13 @@ attribute_to_idx = graph_cache["attribute_to_idx"]
 decks_folder = graph_cache["decks_folder"]
 
 #####################################
-# 2. GNN MODEL & TRAINING TARGETS
+# 2. GNN MODEL & TRAINING TARGETS (RANKING / CLASSIFICATION)
 #####################################
 
-# Modified model: output scaled by sigmoid to lie in (0,3)
+# We'll reformulate the task as binary classification per deck section.
+# For each card in a deck file, if it appears in that section, label = 1, otherwise 0.
+
+# Model: We'll output 3 logits per card (for main, extra, and side), and use BCEWithLogitsLoss.
 class DeckGNN(nn.Module):
     def __init__(self, in_channels, hidden_channels):
         super(DeckGNN, self).__init__()
@@ -189,10 +192,10 @@ class DeckGNN(nn.Module):
     def forward(self, x, edge_index):
         x = F.relu(self.conv1(x, edge_index))
         x = F.relu(self.conv2(x, edge_index))
-        x = self.out(x)
-        return 3 * torch.sigmoid(x)  # outputs between 0 and 3
+        # Output logits; BCEWithLogitsLoss will handle the sigmoid.
+        return self.out(x)
 
-# Build training targets from .ydk files.
+# Build training targets as binary labels.
 training_decks = []
 deck_files = [f for f in os.listdir(decks_folder) if f.endswith(".ydk")]
 
@@ -220,23 +223,24 @@ print(">> Building training targets from deck files...")
 for deck_file in deck_files:
     deck_path = os.path.join(decks_folder, deck_file)
     deck = parse_ydk(deck_path)
+    # Binary labels: if a card appears (count>0) then label=1, else 0.
     main_counter = Counter(deck.get("main", []))
     extra_counter = Counter(deck.get("extra", []))
     side_counter = Counter(deck.get("side", []))
     target = torch.zeros(data.x.shape[0], 3, dtype=torch.float)
     for card_id, count in main_counter.items():
         if card_id in card_id_to_node_id:
-            target[card_id_to_node_id[card_id], 0] = float(count)
+            target[card_id_to_node_id[card_id], 0] = 1.0 if count > 0 else 0.0
     for card_id, count in extra_counter.items():
         if card_id in card_id_to_node_id:
-            target[card_id_to_node_id[card_id], 1] = float(count)
+            target[card_id_to_node_id[card_id], 1] = 1.0 if count > 0 else 0.0
     for card_id, count in side_counter.items():
         if card_id in card_id_to_node_id:
-            target[card_id_to_node_id[card_id], 2] = float(count)
+            target[card_id_to_node_id[card_id], 2] = 1.0 if count > 0 else 0.0
     training_decks.append(target)
 print(">> Training targets built.")
 
-# Debug: print average target value for main deck
+# Debug: print average target value for main deck.
 all_targets = torch.stack(training_decks)
 mean_target = all_targets[:, :, 0].mean().item()
 print(">> Mean training target (main deck):", mean_target)
@@ -286,7 +290,7 @@ def adjust_main_deck_copy_counts(unique_deck, deck_files, desired_size):
     new_deck = []
     for card in unique_deck:
         rec_copies = compute_average_copy(card, deck_files)
-        rec_copies = min(rec_copies, 3)  # enforce maximum 3 copies
+        rec_copies = min(rec_copies, 3)
         for _ in range(rec_copies):
             if new_deck.count(card) < 3 and len(new_deck) < desired_size:
                 new_deck.append(card)
@@ -317,19 +321,39 @@ def build_side_deck(deck_files, desired_size=15, dropoff_ratio=0.3):
     return fill_from_sorted_recommendations(sorted_recs, desired_size, dropoff_ratio)
 
 #####################################
-# Enforce Maximum Three Copies Function
+# New: Dynamic Main Deck Filling Function
 #####################################
 
-def enforce_max_three(deck):
-    """Ensure that no card appears more than 3 times in the deck."""
-    new_deck = []
-    counts = {}
-    for card in deck:
-        counts[card] = counts.get(card, 0)
-        if counts[card] < 3:
-            new_deck.append(card)
-            counts[card] += 1
-    return new_deck
+def dynamic_fill_main_deck(unique_candidates, main_pred, min_size=40, max_size=60, gap_threshold=0.5):
+    """
+    Given a list of candidate card IDs and the GNN main predictions (tensor of probabilities),
+    sort candidates by descending predicted score and add them until:
+      - At least min_size candidates are added.
+      - Then, if a candidate's score is much lower than the previous candidate's score (gap > gap_threshold),
+        stop adding further candidates.
+    Only candidates present in card_id_to_node_id are considered.
+    Returns a list of candidate card IDs.
+    """
+    candidate_scores = []
+    for cid in unique_candidates:
+        if cid not in card_id_to_node_id:
+            continue
+        score = main_pred[card_id_to_node_id[cid]].item()
+        candidate_scores.append((cid, score))
+    candidate_scores.sort(key=lambda x: x[1], reverse=True)
+    final_candidates = []
+    for i, (cid, score) in enumerate(candidate_scores):
+        if i == 0:
+            final_candidates.append(cid)
+        else:
+            if len(final_candidates) >= min_size:
+                prev_score = candidate_scores[i-1][1]
+                if (prev_score - score) > gap_threshold:
+                    break
+            final_candidates.append(cid)
+        if len(final_candidates) >= max_size:
+            break
+    return final_candidates
 
 #####################################
 # 4. DECK GENERATION FUNCTIONS (HYBRID: GNN + HISTORICAL)
@@ -342,45 +366,50 @@ def generate_deck(model, seed_card_ids=None, synergy_factor=1.0, banned_cards=No
 
     model.eval()
     with torch.no_grad():
-        pred = model(data.x, data.edge_index)  # shape: (num_nodes, 3)
-
-    main_pred = pred[:, 0]
-    print(">> GNN main prediction stats -- mean:", main_pred.mean().item(), "max:", main_pred.max().item())
+        logits = model(data.x, data.edge_index)  # shape: (num_nodes, 3)
+    # Convert logits to probabilities.
+    probs = torch.sigmoid(logits)
+    main_prob = probs[:, 0]
+    print(">> GNN main prediction stats -- mean:", main_prob.mean().item(), "max:", main_prob.max().item())
 
     if seed_card_ids:
-        bonus = torch.zeros_like(pred)
+        bonus = torch.zeros_like(probs)
         seed_node_ids = [card_id_to_node_id[cid] for cid in seed_card_ids if cid in card_id_to_node_id]
         for seed_node in seed_node_ids:
             seed_card_id = node_id_to_card_id[seed_node]
-            for candidate_node in range(len(pred)):
+            for candidate_node in range(len(probs)):
                 candidate_card_id = node_id_to_card_id[candidate_node]
                 edge_weight = graph_edges.get((seed_card_id, candidate_card_id), 0.0)
                 bonus[candidate_node] += synergy_factor * edge_weight
-        pred = pred + bonus
+        probs = probs + bonus
 
     if banned_cards:
-        for node_idx in range(len(pred)):
+        for node_idx in range(len(probs)):
             card_id = node_id_to_card_id[node_idx]
             if card_id in banned_cards:
-                pred[node_idx] = 0.0
+                probs[node_idx] = 0.0
 
-    main_counts = torch.clamp(torch.round(pred[:, 0]), max=3)
+    # Build raw main deck from predicted probabilities.
     raw_main = []
-    for idx, count in enumerate(main_counts):
+    for idx, score in enumerate(probs[:, 0]):
         card_id = node_id_to_card_id[idx]
         info = card_info.get(card_id, {})
         ctype = info.get("type", "").lower()
         if any(keyword in ctype for keyword in EXTRA_ONLY_TYPES):
             continue
-        for _ in range(int(count.item())):
+        # Use a threshold: if score > 0.5, then include it once.
+        if score.item() > 0.5:
             raw_main.append(card_id)
     print(f">> Raw main deck from GNN has {len(raw_main)} cards.")
 
+    # If the raw main deck is under-sized, supplement from historical frequencies.
     if len(raw_main) < 40:
         print(">> Main deck is under-sized; supplementing with popular main deck cards...")
         freq_main = get_section_frequency(deck_files, "main")
         sorted_main = sorted(freq_main.items(), key=lambda x: x[1], reverse=True)
         for rec_card, freq in sorted_main:
+            if rec_card not in card_id_to_node_id:
+                continue
             info = card_info.get(rec_card, {})
             ctype = info.get("type", "").lower()
             if any(x in ctype for x in EXTRA_ONLY_TYPES):
@@ -391,12 +420,13 @@ def generate_deck(model, seed_card_ids=None, synergy_factor=1.0, banned_cards=No
                 break
 
     unique_main = list(dict.fromkeys(raw_main))
-    final_main = adjust_main_deck_copy_counts(unique_main, deck_files, 40)
-    # Enforce that no card appears more than 3 times.
+    # Use dynamic filling: stop if there is a big gap after reaching min_size.
+    final_candidates = dynamic_fill_main_deck(unique_main, main_prob, min_size=40, max_size=60, gap_threshold=0.5)
+    print(">> Dynamic main deck candidate count:", len(final_candidates))
+
+    final_main = adjust_main_deck_copy_counts(final_candidates, deck_files, desired_size=len(final_candidates))
     final_main = enforce_max_three(final_main)
-    if len(final_main) > 60:
-        print(">> Trimming main deck to 60 cards...")
-        final_main = final_main[:60]
+    # final_main can be between 40 and 60 cards.
 
     def main_sort_key(card_id):
         ctype = card_info.get(card_id, {}).get("type", "").lower()
@@ -427,6 +457,21 @@ def create_deck(seed_card_ids=None, synergy_factor=1.0, retrain=False, banned_ca
     return generate_deck(model, seed_card_ids=seed_card_ids, synergy_factor=synergy_factor, banned_cards=banned_cards)
 
 #####################################
+# Enforce Maximum Three Copies Function
+#####################################
+
+def enforce_max_three(deck):
+    """Ensure that no card appears more than 3 times in the deck."""
+    new_deck = []
+    counts = {}
+    for card in deck:
+        counts[card] = counts.get(card, 0)
+        if counts[card] < 3:
+            new_deck.append(card)
+            counts[card] += 1
+    return new_deck
+
+#####################################
 # 5. MODEL TRAINING & LOADING FUNCTIONS
 #####################################
 
@@ -436,14 +481,17 @@ def train_model(num_epochs=50, model_save_path=MODEL_SAVE_PATH):
     print(">> Starting model training...")
     model = DeckGNN(in_channels=data.x.shape[1], hidden_channels=64)
     optimizer = optim.Adam(model.parameters(), lr=0.01)
-    criterion = nn.MSELoss()
+    # Use BCEWithLogitsLoss (it applies sigmoid internally).
+    # We'll set pos_weight to help with imbalance (tune as needed).
+    pos_weight = torch.tensor([5.0, 5.0, 5.0])
+    loss_fn = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     for epoch in tqdm(range(num_epochs), desc="Training epochs"):
         model.train()
         optimizer.zero_grad()
-        out = model(data.x, data.edge_index)
+        logits = model(data.x, data.edge_index)  # shape: (num_nodes, 3)
         loss_total = 0
         for target in training_decks:
-            loss_total += criterion(out, target)
+            loss_total += loss_fn(logits, target)
         loss_total = loss_total / len(training_decks)
         loss_total.backward()
         optimizer.step()
@@ -501,7 +549,7 @@ if __name__ == "__main__":
     seed_input = input("Enter one or more seed card IDs, separated by commas (or leave blank for none): ").strip()
     seed_ids = [s.strip() for s in seed_input.split(",")] if seed_input else None
 
-    main_deck, extra_deck, side_deck = create_deck(seed_card_ids=seed_ids, retrain=retrain_flag, banned_cards=banned_cards)
+    main_deck, extra_deck, side_deck = create_deck(seed_card_ids=seed_ids, synergy_factor=1.0, retrain=retrain_flag, banned_cards=banned_cards)
 
     deck_name = input("Enter a name for your deck: ").strip()
     if not deck_name:
