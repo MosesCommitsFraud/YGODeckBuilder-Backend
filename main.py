@@ -7,29 +7,32 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-import requests  # For fetching the banlist from the API
+import requests  # For fetching banlist (if needed)
 from tqdm import tqdm  # For progress bars
 
 from transformers import pipeline, AutoTokenizer, AutoModelForTokenClassification
 from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv
 
-# -------------------------
-# GRAPH CACHING FUNCTIONS
-# -------------------------
+#####################################
+# 1. GRAPH CONSTRUCTION & CACHING
+#####################################
 
 CACHE_FILE = "graph_cache.pt"
 
 def build_graph():
-    """Builds the graph from scratch using cards.json and deck files."""
-    # --- Load Cards and Build Lookups ---
+    print(">> Building graph from scratch...")
+
+    # --- Load card data from cards.json ---
     with open("cards.json", "r") as f:
         cards_data = json.load(f)["data"]
 
+    # Build lookups.
     card_name_to_id = {card["name"].lower(): str(card["id"]) for card in cards_data}
     card_info = {str(card["id"]): card for card in cards_data}
 
     # --- Initialize BERT NER Pipeline ---
+    print(">> Initializing BERT NER pipeline...")
     ner_pipe = pipeline("token-classification", model="dslim/bert-base-NER", grouped_entities=True)
     tokenizer = AutoTokenizer.from_pretrained("dslim/bert-base-NER")
     model_ner = AutoModelForTokenClassification.from_pretrained("dslim/bert-base-NER")
@@ -43,12 +46,9 @@ def build_graph():
                 mentioned_ids.add(card_name_to_id[entity_text])
         return mentioned_ids
 
-    # -------------------------
-    # Build Co-occurrence & Graph
-    # -------------------------
+    # --- Build Co-occurrence dictionary from deck files ---
     decks_folder = "ydk_download"
-
-    def parse_ydk(file_path):
+    def parse_ydk_inner(file_path):
         sections = {"main": [], "extra": [], "side": []}
         current_section = None
         with open(file_path, "r") as f:
@@ -69,23 +69,22 @@ def build_graph():
         co_occurrence = defaultdict(int)
         deck_files = [f for f in os.listdir(decks_folder) if f.endswith(".ydk")]
         num_decks = len(deck_files)
+        print(f">> Found {num_decks} deck files for co-occurrence stats.")
         for deck_file in deck_files:
             deck_path = os.path.join(decks_folder, deck_file)
-            deck = parse_ydk(deck_path)
-            # Combine all card IDs from main, extra, and side (keeping duplicates)
-            cards_in_deck = deck.get("main", []) + deck.get("extra", []) + deck.get("side", [])
-            unique_cards = set(cards_in_deck)
-            for card_i in unique_cards:
-                for card_j in unique_cards:
+            deck = parse_ydk_inner(deck_path)
+            cards_in_deck = list(set(deck.get("main", []) + deck.get("extra", []) + deck.get("side", [])))
+            for card_i in cards_in_deck:
+                for card_j in cards_in_deck:
                     if card_i != card_j:
                         co_occurrence[(card_i, card_j)] += 1
         return co_occurrence, num_decks
 
     co_occurrence, total_decks = build_co_occurrence(decks_folder)
 
-    # Weight multipliers
-    alpha = 1.0  # BERT mention
-    beta = 0.5   # Normalized co-occurrence frequency
+    # --- Build weighted graph edges ---
+    alpha = 1.0  # Mention weight
+    beta = 0.5   # Co-occurrence frequency weight
     gamma = 0.1  # Shared attribute bonus
 
     graph_edges = {}
@@ -106,14 +105,11 @@ def build_graph():
             if weight > 0:
                 graph_edges[(card_id_i, card_id_j)] = weight
 
-    print(f"Constructed graph with {len(graph_edges)} weighted edges.")
+    print(f">> Constructed graph with {len(graph_edges)} weighted edges.")
 
-    # -------------------------
-    # Build PyTorch Geometric Data Object
-    # -------------------------
+    # --- Build PyTorch Geometric Data Object ---
     attributes = list({card.get("attribute", "None") for card in cards_data})
     attribute_to_idx = {attr: i for i, attr in enumerate(attributes)}
-
     node_features = []
     node_id_to_card_id = {}
     card_id_to_node_id = {}
@@ -130,22 +126,18 @@ def build_graph():
         card_id_to_node_id[card_id] = i
 
     x = torch.tensor(node_features, dtype=torch.float)
-
     edge_index_list = []
     for (card_id_i, card_id_j), weight in graph_edges.items():
         if card_id_i in card_id_to_node_id and card_id_j in card_id_to_node_id:
             i = card_id_to_node_id[card_id_i]
             j = card_id_to_node_id[card_id_j]
             edge_index_list.append([i, j])
-
     if edge_index_list:
         edge_index = torch.tensor(edge_index_list, dtype=torch.long).t().contiguous()
     else:
         edge_index = torch.empty((2, 0), dtype=torch.long)
-
     data = Data(x=x, edge_index=edge_index)
 
-    # Package everything in a dictionary.
     graph_dict = {
         "data": data,
         "node_id_to_card_id": node_id_to_card_id,
@@ -158,23 +150,19 @@ def build_graph():
         "attribute_to_idx": attribute_to_idx,
         "decks_folder": decks_folder
     }
+    print(">> Graph built successfully.")
     return graph_dict
 
 def get_cached_graph():
-    """Ask the user if data has been added. Rebuild graph if yes; otherwise load cache."""
     answer = input("Has new data been added? (y/n): ").strip().lower()
     if answer == "y" or not os.path.exists(CACHE_FILE):
-        print("Building graph from new data...")
         graph_dict = build_graph()
         torch.save(graph_dict, CACHE_FILE)
     else:
-        print("Loading cached graph...")
-        graph_dict = torch.load(CACHE_FILE)
+        print(">> Loading cached graph...")
+        graph_dict = torch.load(CACHE_FILE, map_location=torch.device('cpu'))
     return graph_dict
 
-# -------------------------
-# Get (or build) the cached graph.
-# -------------------------
 graph_cache = get_cached_graph()
 data = graph_cache["data"]
 node_id_to_card_id = graph_cache["node_id_to_card_id"]
@@ -187,30 +175,31 @@ attributes = graph_cache["attributes"]
 attribute_to_idx = graph_cache["attribute_to_idx"]
 decks_folder = graph_cache["decks_folder"]
 
-# -------------------------
-# The rest of the code (model definition, training, deck generation, etc.) remains unchanged.
-# -------------------------
+#####################################
+# 2. GNN MODEL & TRAINING TARGETS
+#####################################
 
-# 3. BUILD THE GNN MODEL & TRAINING TARGETS
-
+# Modified model: output scaled by sigmoid to lie in (0,3)
 class DeckGNN(nn.Module):
     def __init__(self, in_channels, hidden_channels):
         super(DeckGNN, self).__init__()
         self.conv1 = GCNConv(in_channels, hidden_channels)
         self.conv2 = GCNConv(hidden_channels, hidden_channels)
-        # Output 3 values per node: [main_count, extra_count, side_count]
         self.out = nn.Linear(hidden_channels, 3)
-
     def forward(self, x, edge_index):
         x = F.relu(self.conv1(x, edge_index))
         x = F.relu(self.conv2(x, edge_index))
-        return F.relu(self.out(x))
+        x = self.out(x)
+        return 3 * torch.sigmoid(x)  # outputs between 0 and 3
 
-# Build training targets from deck files.
+# Build training targets from .ydk files.
 training_decks = []
 deck_files = [f for f in os.listdir(decks_folder) if f.endswith(".ydk")]
 
 def parse_ydk(file_path):
+    if not os.path.exists(file_path):
+        if not file_path.startswith(decks_folder):
+            file_path = os.path.join(decks_folder, file_path)
     sections = {"main": [], "extra": [], "side": []}
     current_section = None
     with open(file_path, "r") as f:
@@ -227,6 +216,7 @@ def parse_ydk(file_path):
                 sections[current_section].append(line)
     return sections
 
+print(">> Building training targets from deck files...")
 for deck_file in deck_files:
     deck_path = os.path.join(decks_folder, deck_file)
     deck = parse_ydk(deck_path)
@@ -244,75 +234,120 @@ for deck_file in deck_files:
         if card_id in card_id_to_node_id:
             target[card_id_to_node_id[card_id], 2] = float(count)
     training_decks.append(target)
+print(">> Training targets built.")
 
-# 4. TRAINING & DECK GENERATION FUNCTIONS
+# Debug: print average target value for main deck
+all_targets = torch.stack(training_decks)
+mean_target = all_targets[:, :, 0].mean().item()
+print(">> Mean training target (main deck):", mean_target)
 
-MODEL_SAVE_PATH = "deck_gnn.pt"
+#####################################
+# 3. HISTORICAL STATISTICAL FUNCTIONS
+#####################################
 
-def train_model(num_epochs=50, model_save_path=MODEL_SAVE_PATH):
-    model_gnn = DeckGNN(in_channels=data.x.shape[1], hidden_channels=64)
-    optimizer = optim.Adam(model_gnn.parameters(), lr=0.01)
-    criterion = nn.MSELoss()
-    print("Starting training...")
-    for epoch in tqdm(range(num_epochs), desc="Training epochs"):
-        model_gnn.train()
-        optimizer.zero_grad()
-        out = model_gnn(data.x, data.edge_index)
-        loss_total = 0
-        for target in training_decks:
-            loss_total += criterion(out, target)
-        loss_total = loss_total / len(training_decks)
-        loss_total.backward()
-        optimizer.step()
-        if epoch % 10 == 0:
-            current_lr = optimizer.param_groups[0]['lr']
-            print(f"Epoch {epoch:03d} | Loss: {loss_total.item():.4f} | LR: {current_lr}")
-    torch.save(model_gnn.state_dict(), model_save_path)
-    print(f"Model saved to {model_save_path}")
-    return model_gnn
-
-def load_model(model_save_path=MODEL_SAVE_PATH):
-    model = DeckGNN(in_channels=data.x.shape[1], hidden_channels=64)
-    model.load_state_dict(torch.load(model_save_path))
-    model.eval()
-    return model
-
-def fetch_extra_deck_keywords(decks_folder):
-    extra_keywords = set()
-    deck_files = [f for f in os.listdir(decks_folder) if f.endswith(".ydk")]
+def get_section_frequency(deck_files, section):
+    freq = Counter()
     for deck_file in deck_files:
         deck_path = os.path.join(decks_folder, deck_file)
-        deck = parse_ydk(deck_path)
-        for card_id in deck.get("extra", []):
-            if card_id in card_info:
-                card_type = card_info[card_id].get("type", "")
-                extra_keywords.update(card_type.split())
-    return extra_keywords
+        sections = parse_ydk(deck_path)
+        freq.update(sections[section])
+    return freq
 
-def fetch_banlist():
-    try:
-        url = "https://db.ygoprodeck.com/api/v7/banlistinfo.php?banlist=tcg"
-        response = requests.get(url)
-        if response.status_code == 200:
-            ban_data = response.json()
-            banned_ids = set()
-            for card in ban_data.get("data", []):
-                ban_info = card.get("banlist_info", {})
-                if ban_info.get("ban_tcg") == "Banned":
-                    banned_ids.add(str(card["id"]))
-            return banned_ids
-        else:
-            print("Failed to fetch banlist, status code:", response.status_code)
-            return set()
-    except Exception as e:
-        print("Error fetching banlist:", e)
-        return set()
+def fill_from_sorted_recommendations(sorted_recs, desired_size, dropoff_ratio=0.3):
+    deck_section = []
+    if not sorted_recs:
+        return deck_section
+    max_freq = sorted_recs[0][1]
+    for card, freq in sorted_recs:
+        if len(deck_section) >= desired_size:
+            break
+        if freq < dropoff_ratio * max_freq:
+            break
+        if card not in deck_section:
+            deck_section.append(card)
+    return deck_section
+
+def compute_average_copy(card_id, deck_files):
+    total_copies = 0
+    deck_count = 0
+    for deck_file in deck_files:
+        deck_path = os.path.join(decks_folder, deck_file)
+        sections = parse_ydk(deck_path)
+        main_d = sections["main"]
+        if card_id in main_d:
+            total_copies += main_d.count(card_id)
+            deck_count += 1
+    if deck_count == 0:
+        return 1
+    avg = total_copies / deck_count
+    return max(1, min(3, round(avg)))
+
+def adjust_main_deck_copy_counts(unique_deck, deck_files, desired_size):
+    new_deck = []
+    for card in unique_deck:
+        rec_copies = compute_average_copy(card, deck_files)
+        rec_copies = min(rec_copies, 3)  # enforce maximum 3 copies
+        for _ in range(rec_copies):
+            if new_deck.count(card) < 3 and len(new_deck) < desired_size:
+                new_deck.append(card)
+        if len(new_deck) >= desired_size:
+            break
+    idx = 0
+    while len(new_deck) < desired_size and unique_deck:
+        card = unique_deck[idx % len(unique_deck)]
+        if new_deck.count(card) < 3:
+            new_deck.append(card)
+        idx += 1
+    return new_deck
+
+def build_extra_deck(deck_files, desired_size=15, dropoff_ratio=0.3):
+    freq_extra = get_section_frequency(deck_files, "extra")
+    valid_extra = {}
+    for card_id, freq in freq_extra.items():
+        info = card_info.get(card_id, {})
+        ctype = info.get("type", "").lower()
+        if any(x in ctype for x in ["fusion", "synchro", "xyz", "link"]):
+            valid_extra[card_id] = freq
+    sorted_recs = sorted(valid_extra.items(), key=lambda x: x[1], reverse=True)
+    return fill_from_sorted_recommendations(sorted_recs, desired_size, dropoff_ratio)
+
+def build_side_deck(deck_files, desired_size=15, dropoff_ratio=0.3):
+    freq_side = get_section_frequency(deck_files, "side")
+    sorted_recs = sorted(freq_side.items(), key=lambda x: x[1], reverse=True)
+    return fill_from_sorted_recommendations(sorted_recs, desired_size, dropoff_ratio)
+
+#####################################
+# Enforce Maximum Three Copies Function
+#####################################
+
+def enforce_max_three(deck):
+    """Ensure that no card appears more than 3 times in the deck."""
+    new_deck = []
+    counts = {}
+    for card in deck:
+        counts[card] = counts.get(card, 0)
+        if counts[card] < 3:
+            new_deck.append(card)
+            counts[card] += 1
+    return new_deck
+
+#####################################
+# 4. DECK GENERATION FUNCTIONS (HYBRID: GNN + HISTORICAL)
+#####################################
+
+EXTRA_ONLY_TYPES = {"fusion", "synchro", "xyz", "link", "pendulum"}
 
 def generate_deck(model, seed_card_ids=None, synergy_factor=1.0, banned_cards=None):
+    print(">> Generating deck using GNN and historical stats...")
+
     model.eval()
     with torch.no_grad():
-        pred = model(data.x, data.edge_index)
-    if seed_card_ids is not None:
+        pred = model(data.x, data.edge_index)  # shape: (num_nodes, 3)
+
+    main_pred = pred[:, 0]
+    print(">> GNN main prediction stats -- mean:", main_pred.mean().item(), "max:", main_pred.max().item())
+
+    if seed_card_ids:
         bonus = torch.zeros_like(pred)
         seed_node_ids = [card_id_to_node_id[cid] for cid in seed_card_ids if cid in card_id_to_node_id]
         for seed_node in seed_node_ids:
@@ -322,102 +357,165 @@ def generate_deck(model, seed_card_ids=None, synergy_factor=1.0, banned_cards=No
                 edge_weight = graph_edges.get((seed_card_id, candidate_card_id), 0.0)
                 bonus[candidate_node] += synergy_factor * edge_weight
         pred = pred + bonus
-    if banned_cards is not None:
+
+    if banned_cards:
         for node_idx in range(len(pred)):
             card_id = node_id_to_card_id[node_idx]
             if card_id in banned_cards:
                 pred[node_idx] = 0.0
-    # Process Main Deck: cap at 3 copies.
+
     main_counts = torch.clamp(torch.round(pred[:, 0]), max=3)
-    main_deck = []
+    raw_main = []
     for idx, count in enumerate(main_counts):
+        card_id = node_id_to_card_id[idx]
+        info = card_info.get(card_id, {})
+        ctype = info.get("type", "").lower()
+        if any(keyword in ctype for keyword in EXTRA_ONLY_TYPES):
+            continue
         for _ in range(int(count.item())):
-            main_deck.append(node_id_to_card_id[idx])
-    total_main = len(main_deck)
-    if total_main < 40:
-        deficit = 40 - total_main
-        sorted_idx = torch.argsort(pred[:, 0], descending=True)
-        for idx in sorted_idx:
-            card_id = node_id_to_card_id[idx.item()]
-            current_count = main_deck.count(card_id)
-            if current_count < 3:
-                main_deck.append(card_id)
-                deficit -= 1
-                if deficit <= 0:
-                    break
-    elif total_main > 60:
-        while len(main_deck) > 60:
-            main_deck.sort(key=lambda cid: pred[card_id_to_node_id[cid], 0])
-            main_deck.pop(0)
-    # Process Extra Deck: cap at 1 copy.
-    extra_counts = torch.clamp(torch.round(pred[:, 1]), max=1)
-    extra_deck = []
-    for idx, count in enumerate(extra_counts):
-        for _ in range(int(count.item())):
-            extra_deck.append(node_id_to_card_id[idx])
-    # Process Side Deck: cap at 3 copies.
-    side_counts = torch.clamp(torch.round(pred[:, 2]), max=3)
-    side_deck = []
-    for idx, count in enumerate(side_counts):
-        for _ in range(int(count.item())):
-            side_deck.append(node_id_to_card_id[idx])
-    def sort_key(card_id):
-        card_type = card_info[card_id].get("type", "").lower()
-        if "monster" in card_type:
+            raw_main.append(card_id)
+    print(f">> Raw main deck from GNN has {len(raw_main)} cards.")
+
+    if len(raw_main) < 40:
+        print(">> Main deck is under-sized; supplementing with popular main deck cards...")
+        freq_main = get_section_frequency(deck_files, "main")
+        sorted_main = sorted(freq_main.items(), key=lambda x: x[1], reverse=True)
+        for rec_card, freq in sorted_main:
+            info = card_info.get(rec_card, {})
+            ctype = info.get("type", "").lower()
+            if any(x in ctype for x in EXTRA_ONLY_TYPES):
+                continue
+            if rec_card not in raw_main:
+                raw_main.append(rec_card)
+            if len(raw_main) >= 40:
+                break
+
+    unique_main = list(dict.fromkeys(raw_main))
+    final_main = adjust_main_deck_copy_counts(unique_main, deck_files, 40)
+    # Enforce that no card appears more than 3 times.
+    final_main = enforce_max_three(final_main)
+    if len(final_main) > 60:
+        print(">> Trimming main deck to 60 cards...")
+        final_main = final_main[:60]
+
+    def main_sort_key(card_id):
+        ctype = card_info.get(card_id, {}).get("type", "").lower()
+        if "monster" in ctype:
             return 0
-        elif "trap" in card_type:
+        elif "trap" in ctype:
             return 1
-        elif "spell" in card_type:
+        elif "spell" in ctype:
             return 2
         else:
             return 3
-    main_deck.sort(key=sort_key)
-    return main_deck, extra_deck, side_deck
+    final_main.sort(key=main_sort_key)
+
+    final_extra = build_extra_deck(deck_files, desired_size=15, dropoff_ratio=0.3)
+    final_side = build_side_deck(deck_files, desired_size=15, dropoff_ratio=0.3)
+
+    print(">> Deck generation complete.")
+    return final_main, final_extra, final_side
 
 def create_deck(seed_card_ids=None, synergy_factor=1.0, retrain=False, banned_cards=None):
+    MODEL_SAVE_PATH = "deck_gnn.pt"
     if retrain or not os.path.exists(MODEL_SAVE_PATH):
-        print("Training model with current data...")
+        print(">> Training model with current data...")
         model = train_model(num_epochs=50, model_save_path=MODEL_SAVE_PATH)
     else:
-        print("Loading saved model...")
+        print(">> Loading saved model...")
         model = load_model(MODEL_SAVE_PATH)
-    return generate_deck(model, seed_card_ids=seed_card_ids,
-                         synergy_factor=synergy_factor, banned_cards=banned_cards)
+    return generate_deck(model, seed_card_ids=seed_card_ids, synergy_factor=synergy_factor, banned_cards=banned_cards)
 
-# 5. USAGE EXAMPLE & .YDK FILE CREATION
+#####################################
+# 5. MODEL TRAINING & LOADING FUNCTIONS
+#####################################
+
+MODEL_SAVE_PATH = "deck_gnn.pt"
+
+def train_model(num_epochs=50, model_save_path=MODEL_SAVE_PATH):
+    print(">> Starting model training...")
+    model = DeckGNN(in_channels=data.x.shape[1], hidden_channels=64)
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
+    criterion = nn.MSELoss()
+    for epoch in tqdm(range(num_epochs), desc="Training epochs"):
+        model.train()
+        optimizer.zero_grad()
+        out = model(data.x, data.edge_index)
+        loss_total = 0
+        for target in training_decks:
+            loss_total += criterion(out, target)
+        loss_total = loss_total / len(training_decks)
+        loss_total.backward()
+        optimizer.step()
+        if epoch % 10 == 0:
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f">> Epoch {epoch:03d} | Loss: {loss_total.item():.4f} | LR: {current_lr}")
+    torch.save(model.state_dict(), model_save_path)
+    print(f">> Model saved to {model_save_path}")
+    return model
+
+def load_model(model_save_path=MODEL_SAVE_PATH):
+    print(">> Loading model from disk...")
+    model = DeckGNN(in_channels=data.x.shape[1], hidden_channels=64)
+    model.load_state_dict(torch.load(model_save_path, map_location=torch.device('cpu')))
+    model.eval()
+    return model
+
+#####################################
+# 6. EXPORT DECK TO .YDK
+#####################################
+
+def export_deck_to_ydk(deck, deck_name):
+    filename = f"{deck_name}.ydk"
+    sorted_main = sorted(deck["main"], key=lambda cid: card_info.get(cid, {}).get("type", ""))
+    sorted_extra = sorted(deck["extra"], key=lambda cid: card_info.get(cid, {}).get("type", ""))
+    sorted_side = sorted(deck["side"], key=lambda cid: card_info.get(cid, {}).get("type", ""))
+    with open(filename, "w") as f:
+        f.write(f"!name {deck_name}\n")
+        f.write("#main\n")
+        for card in sorted_main:
+            f.write(f"{card}\n")
+        f.write("#extra\n")
+        for card in sorted_extra:
+            f.write(f"{card}\n")
+        f.write("!side\n")
+        for card in sorted_side:
+            f.write(f"{card}\n")
+    print(f"\n>> Deck exported to {filename}")
+
+#####################################
+# 7. MAIN EXECUTION
+#####################################
 
 if __name__ == "__main__":
+    print("\n===== Deck Generation Script Started =====\n")
     retrain_input = input("Do you want to retrain the model with new data? (y/n): ").strip().lower()
     retrain_flag = retrain_input == "y"
+
     banlist_input = input("Should the banlist be respected? (y/n): ").strip().lower()
     if banlist_input == "y":
-        banlist = fetch_banlist()
+        banned_cards = set()  # Placeholder for banned card IDs.
     else:
-        banlist = None
+        banned_cards = None
+
     seed_input = input("Enter one or more seed card IDs, separated by commas (or leave blank for none): ").strip()
     seed_ids = [s.strip() for s in seed_input.split(",")] if seed_input else None
-    main_deck, extra_deck, side_deck = create_deck(seed_card_ids=seed_ids, retrain=retrain_flag, banned_cards=banlist)
+
+    main_deck, extra_deck, side_deck = create_deck(seed_card_ids=seed_ids, retrain=retrain_flag, banned_cards=banned_cards)
+
     deck_name = input("Enter a name for your deck: ").strip()
     if not deck_name:
         deck_name = "generated_deck"
-    ydk_lines = []
-    ydk_lines.append(f"#created by DeckGNN")
-    ydk_lines.append(f"#name {deck_name}")
-    ydk_lines.append("#main")
-    for card in main_deck:
-        ydk_lines.append(card)
-    ydk_lines.append("#extra")
-    for card in extra_deck:
-        ydk_lines.append(card)
-    ydk_lines.append("!side")
-    for card in side_deck:
-        ydk_lines.append(card)
-    ydk_filename = deck_name.replace(" ", "_") + ".ydk"
-    with open(ydk_filename, "w") as f:
-        f.write("\n".join(ydk_lines))
-    print(f"\n--- Generated Deck ---")
+
+    final_deck = {
+        "main": main_deck,
+        "extra": extra_deck,
+        "side": side_deck
+    }
+    export_deck_to_ydk(final_deck, deck_name)
+
+    print("\n===== Generated Deck =====")
     print(f"Deck Name: {deck_name}")
     print("Main Deck ({} cards):".format(len(main_deck)), main_deck)
     print("Extra Deck ({} cards):".format(len(extra_deck)), extra_deck)
     print("Side Deck ({} cards):".format(len(side_deck)), side_deck)
-    print(f"\nDeck file saved as {ydk_filename}")
