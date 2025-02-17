@@ -48,7 +48,8 @@ def parse_ydk_file(file_path):
 
 def load_full_decks(ydk_folder):
     """
-    Loads all .ydk files from a folder and returns a list of decks (dict with keys "main", "extra", "side").
+    Loads all .ydk files from a folder and returns a list of decks
+    (each a dict with keys "main", "extra", "side").
     Only decks with a main deck of 40–60 cards are included.
     """
     decks = []
@@ -61,7 +62,7 @@ def load_full_decks(ydk_folder):
     return decks
 
 ##############################
-# Part 2: Association Rule Mining (Generic for any deck section)
+# Part 2: Association Rule Mining (Generic for Main Deck)
 ##############################
 
 def build_transaction_df(deck_lists):
@@ -73,7 +74,7 @@ def build_transaction_df(deck_lists):
     df = pd.DataFrame(te_ary, columns=te.columns_)
     return df
 
-def mine_rules(df, min_support=0.03, min_confidence=0.4, max_len=4):
+def mine_rules(df, min_support=0.05, min_confidence=0.5, max_len=3):
     """
     Mines frequent itemsets and association rules using Apriori.
     Returns both the frequent itemsets and the rules DataFrame.
@@ -84,9 +85,9 @@ def mine_rules(df, min_support=0.03, min_confidence=0.4, max_len=4):
 
 def recommend_cards(input_cards, rules, top_n=10):
     """
-    Given a list of input card IDs and association rules,
+    Given a list of input card IDs and association rules (min-deck rules),
     recommends additional main deck cards.
-    (If any input card appears in a rule's antecedents, the consequent cards are recommended.)
+    If any input card appears in a rule's antecedents, the consequent cards are recommended.
     Returns a list of tuples (card_id, avg_confidence).
     """
     recommendations = defaultdict(list)
@@ -131,7 +132,7 @@ def fallback_recommendations(input_cards, main_decks, top_n=10):
 
 def compute_average_copies_main(main_decks):
     """
-    Computes the average number of copies (rounded to nearest integer, max capped at 3)
+    Computes the average number of copies (rounded, capped at 3)
     for each card in the main decks (only for decks where that card appears).
     """
     total = defaultdict(int)
@@ -148,7 +149,8 @@ def compute_average_copies_main(main_decks):
 
 def compute_average_copies_side(full_decks):
     """
-    Computes the average number of copies (rounded, capped at 3) for each card in the side decks.
+    Computes the average number of copies (rounded, capped at 3)
+    for each card in the side decks.
     """
     total = defaultdict(int)
     count = defaultdict(int)
@@ -163,68 +165,38 @@ def compute_average_copies_side(full_decks):
     return avg
 
 ##############################
-# Part 4: Build Sub-Decks via Association Analysis
+# Part 4: Extra & Side Deck Recommendations Based on Input
 ##############################
 
-def build_extra_deck_association(extra_decks, target_extra):
+def recommend_extra_deck(input_cards, full_decks, target_extra):
     """
-    Uses extra deck transactions to mine frequent itemsets and picks a coherent set.
-    If association rules exist, choose the largest frequent itemset (by support);
-    then, if needed, fill remaining slots by frequency.
-    (Extra deck: typically 1 copy per card.)
+    Recommends extra deck cards based on the input main deck cards.
+    For each deck in the training data that contains any input card in its main deck,
+    extra deck cards are tallied.
+    Returns the top recommended extra deck cards (unique; 1 copy per card).
     """
-    if not extra_decks:
-        return []
-    df_extra = build_transaction_df(extra_decks)
-    freq_itemsets_extra = apriori(df_extra, min_support=0.02, use_colnames=True, max_len=2)
-    if freq_itemsets_extra.empty:
-        # Fall back on frequency counts
-        extra_counter = Counter(card for deck in extra_decks for card in deck)
-        recommended = [card for card, _ in extra_counter.most_common(target_extra)]
-        return recommended
-    # Choose the frequent itemset with maximum length and highest support
-    freq_itemsets_extra['length'] = freq_itemsets_extra['itemsets'].apply(lambda x: len(x))
-    max_length = freq_itemsets_extra['length'].max()
-    candidate_sets = freq_itemsets_extra[freq_itemsets_extra['length'] == max_length]
-    candidate_sets = candidate_sets.sort_values('support', ascending=False)
-    chosen_itemset = list(candidate_sets.iloc[0]['itemsets'])
-    # Fill remaining slots using frequency if needed
-    extra_counter = Counter(card for deck in extra_decks for card in deck)
-    recommended = chosen_itemset[:]
-    for card, _ in extra_counter.most_common():
-        if card not in recommended and len(recommended) < target_extra:
-            recommended.append(card)
-    return recommended[:target_extra]
+    extra_counter = Counter()
+    for deck in full_decks:
+        if any(card in deck["main"] for card in input_cards):
+            for card in deck["extra"]:
+                extra_counter[card] += 1
+    recommended = [card for card, _ in extra_counter.most_common(target_extra)]
+    return recommended
 
-def build_side_deck_association(side_decks, target_side, avg_side):
+def recommend_side_deck(input_cards, full_decks, target_side):
     """
-    Uses side deck transactions to mine frequent itemsets and picks a coherent set.
-    Then fills remaining slots (unique cards) by frequency.
+    Recommends side deck cards based on the input main deck cards.
+    For each deck in the training data that contains any input card in its main deck,
+    side deck cards are tallied.
+    Returns the top recommended side deck cards (unique; up to 3 copies allowed later).
     """
-    if not side_decks:
-        return []
-    df_side = build_transaction_df(side_decks)
-    freq_itemsets_side = apriori(df_side, min_support=0.02, use_colnames=True, max_len=3)
-    if freq_itemsets_side.empty:
-        side_counter = Counter(card for deck in side_decks for card in deck)
-        recommended = []
-        for card, _ in side_counter.most_common():
-            if card not in recommended:
-                recommended.append(card)
-            if len(recommended) >= target_side:
-                break
-        return recommended[:target_side]
-    freq_itemsets_side['length'] = freq_itemsets_side['itemsets'].apply(lambda x: len(x))
-    max_length = freq_itemsets_side['length'].max()
-    candidate_sets = freq_itemsets_side[freq_itemsets_side['length'] == max_length]
-    candidate_sets = candidate_sets.sort_values('support', ascending=False)
-    chosen_itemset = list(candidate_sets.iloc[0]['itemsets'])
-    recommended = chosen_itemset[:]
-    side_counter = Counter(card for deck in side_decks for card in deck)
-    for card, _ in side_counter.most_common():
-        if card not in recommended and len(recommended) < target_side:
-            recommended.append(card)
-    return recommended[:target_side]
+    side_counter = Counter()
+    for deck in full_decks:
+        if any(card in deck["main"] for card in input_cards):
+            for card in deck["side"]:
+                side_counter[card] += 1
+    recommended = [card for card, _ in side_counter.most_common(target_side)]
+    return recommended
 
 ##############################
 # Part 5: Main Deck Construction (Using Statistical Averages)
@@ -233,9 +205,9 @@ def build_side_deck_association(side_decks, target_side, avg_side):
 def build_main_deck(input_cards, recommendations, main_decks, avg_main, target_main):
     """
     Constructs the main deck using:
-     - The input cards (each added using its average copy count),
-     - Then recommended cards (added up to that card's average count),
-     - Finally, if needed, fill remaining slots using the most frequent main deck cards.
+      - The input cards (each added using its average copy count),
+      - Then recommended cards (added up to that card's average count),
+      - Finally, if needed, fill remaining slots using the most frequent main deck cards.
     """
     deck_counter = Counter()
     new_main = []
@@ -335,13 +307,9 @@ def main():
     # Separate main decks for association rule mining
     main_decks = [deck["main"] for deck in full_decks]
 
-    # Also extract extra and side deck lists
+    # Also extract extra and side deck lists (for fallback if needed)
     extra_decks = [deck["extra"] for deck in full_decks if deck["extra"]]
     side_decks = [deck["side"] for deck in full_decks if deck["side"]]
-
-    # ---- Compute Frequency Counters (for fallback if needed) ----
-    extra_counter = Counter(card for deck in extra_decks for card in deck)
-    side_counter = Counter(card for deck in side_decks for card in deck)
 
     # ---- Build Transaction DataFrame & Mine Rules (Main Deck) ----
     print("Building transaction DataFrame for main decks...")
@@ -387,11 +355,11 @@ def main():
     # ---- Build Main Deck (Using Statistical Averages) ----
     new_main_deck = build_main_deck(input_cards, recs, main_decks, avg_main, target_main=target_main_size)
 
-    # ---- Build Extra Deck via Association Analysis ----
-    new_extra_deck = build_extra_deck_association(extra_decks, target_extra_size)
+    # ---- Build Extra Deck Based on Input (Less General) ----
+    new_extra_deck = recommend_extra_deck(input_cards, full_decks, target_extra_size)
 
-    # ---- Build Side Deck via Association Analysis ----
-    new_side_deck = build_side_deck_association(side_decks, target_side_size, avg_side)
+    # ---- Build Side Deck Based on Input (Optional Improvement) ----
+    new_side_deck = recommend_side_deck(input_cards, full_decks, target_side_size)
 
     # ---- Combine into New Complete Deck ----
     new_deck = {
