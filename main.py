@@ -94,11 +94,10 @@ def extract_referenced_card_ids(description, name_to_id):
 def filter_synergy_candidates(boosted_recs, card_info):
     """
     Checks each candidate's description for required synergy partners.
-    If a candidate's description references other cards (via a substring match)
-    and none of those referenced cards appear among the candidate recommendations,
-    then that candidate is dropped.
+    If a candidate's description references other cards and none of those
+    referenced cards appear among the candidate recommendations, then that
+    candidate is dropped.
     """
-    # Build mapping of lower-case card names to IDs for all cards
     name_to_id = {card_info[c]["name"].lower(): c for c in card_info if "name" in card_info[c]}
     candidate_ids = set(card for card, score in boosted_recs)
     filtered = []
@@ -308,19 +307,26 @@ def fallback_extra_deck(input_cards, full_decks, top_n=10):
     return extra_counter.most_common(top_n)
 
 
-def recommend_extra_deck_contextual(input_cards, full_decks, top_n=10, min_decks=3):
-    filtered = [deck["extra"] for deck in full_decks if
-                deck["extra"] and any(card in deck["main"] for card in input_cards)]
-    if len(filtered) < min_decks:
-        return fallback_extra_deck(input_cards, full_decks, top_n)
-    df_extra = build_transaction_df(filtered)
-    _, rules_extra = mine_rules(df_extra, min_support=0.02, min_confidence=0.4, max_len=2)
-    recs = defaultdict(list)
-    for idx, rule in rules_extra.iterrows():
-        for card in set(rule['consequents']):
-            recs[card].append(rule['confidence'])
-    ranked = [(card, sum(confs) / len(confs)) for card, confs in recs.items()]
-    return sorted(ranked, key=lambda x: x[1], reverse=True)[:top_n]
+def get_filtered_extra_decks(input_cards, full_decks):
+    """Returns extra deck lists from decks whose main contains an input card."""
+    return [deck["extra"] for deck in full_decks if deck["extra"] and any(card in deck["main"] for card in input_cards)]
+
+
+def build_extra_deck_filtered(input_cards, full_decks, target_extra):
+    """
+    Builds an extra deck using only extra decks from decks whose main deck contains an input card.
+    Uses frequency counts from the filtered pool.
+    """
+    filtered = get_filtered_extra_decks(input_cards, full_decks)
+    if not filtered:
+        return []
+    all_extra = []
+    for deck in filtered:
+        all_extra.extend(deck)
+    freq = Counter(all_extra)
+    sorted_candidates = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    candidates = list(dict.fromkeys([cand for cand, _ in sorted_candidates]))
+    return candidates[:target_extra]
 
 
 def fallback_side_deck(input_cards, full_decks, top_n=10):
@@ -332,19 +338,26 @@ def fallback_side_deck(input_cards, full_decks, top_n=10):
     return side_counter.most_common(top_n)
 
 
-def recommend_side_deck_contextual(input_cards, full_decks, top_n=10, min_decks=3):
-    filtered = [deck["side"] for deck in full_decks if
-                deck["side"] and any(card in deck["main"] for card in input_cards)]
-    if len(filtered) < min_decks:
-        return fallback_side_deck(input_cards, full_decks, top_n)
-    df_side = build_transaction_df(filtered)
-    _, rules_side = mine_rules(df_side, min_support=0.02, min_confidence=0.4, max_len=2)
-    recs = defaultdict(list)
-    for idx, rule in rules_side.iterrows():
-        for card in set(rule['consequents']):
-            recs[card].append(rule['confidence'])
-    ranked = [(card, sum(confs) / len(confs)) for card, confs in recs.items()]
-    return sorted(ranked, key=lambda x: x[1], reverse=True)[:top_n]
+def get_filtered_side_decks(input_cards, full_decks):
+    """Returns side deck lists from decks whose main contains an input card."""
+    return [deck["side"] for deck in full_decks if deck["side"] and any(card in deck["main"] for card in input_cards)]
+
+
+def build_side_deck_filtered(input_cards, full_decks, target_side):
+    """
+    Builds a side deck using only side decks from decks whose main deck contains an input card.
+    Uses frequency counts from the filtered pool.
+    """
+    filtered = get_filtered_side_decks(input_cards, full_decks)
+    if not filtered:
+        return []
+    all_side = []
+    for deck in filtered:
+        all_side.extend(deck)
+    freq = Counter(all_side)
+    sorted_candidates = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    candidates = list(dict.fromkeys([cand for cand, _ in sorted_candidates]))
+    return candidates[:target_side]
 
 
 def build_section_deck_simple(candidate_list, target_size):
@@ -417,14 +430,16 @@ def build_main_deck_extended(input_cards, candidate_recs, main_decks, avg_main, 
     Iteratively builds the main deck between target_min and target_max cards.
     Starts with forced input cards and then adds candidates from candidate_recs.
     Candidate scores are boosted using aggregated NER context and explicit reference extraction.
-    If synergy filtering removes too many cards, the deck is filled from fallback candidates.
+    After the iterative process, if the deck is below target_min, it is filled using fallback candidates.
     """
-    # Build mapping of lower-case card names to IDs
+    # Mapping of lower-case card names to IDs.
     name_to_id = {card_info[c]["name"].lower(): c for c in card_info if "name" in card_info[c]}
 
     new_main_deck = list(input_cards)
     deck_counter = Counter(new_main_deck)
 
+    # Make a copy of candidate_recs for fallback
+    original_candidates = sorted(candidate_recs, key=lambda x: x[1], reverse=True)
     candidates = candidate_recs[:]  # list of (card, score)
 
     while len(new_main_deck) < target_max and candidates:
@@ -442,7 +457,6 @@ def build_main_deck_extended(input_cards, candidate_recs, main_decks, avg_main, 
         updated_candidates.sort(key=lambda x: x[1], reverse=True)
         best_score = updated_candidates[0][1]
         filtered_candidates = [cand for cand in updated_candidates if cand[1] >= best_score * drop_threshold]
-        # If we already have at least target_min cards, we can break if quality drops sharply
         if len(new_main_deck) >= target_min and len(updated_candidates) > 1 and updated_candidates[1][
             1] < best_score * drop_threshold:
             break
@@ -452,20 +466,26 @@ def build_main_deck_extended(input_cards, candidate_recs, main_decks, avg_main, 
                 new_main_deck.append(cand)
                 deck_counter[cand] += 1
         candidates = [(card, score) for card, score in updated_candidates if deck_counter[card] < avg_main.get(card, 1)]
-        # If no candidates remain, break
         if not candidates:
             break
-    # If after the loop we have fewer than target_min cards, fill with fallback from candidate_recs (ignoring drop threshold)
+
+    # Fallback: if deck size is below target_min, fill from the union of remaining original candidates and fallback frequency.
     if len(new_main_deck) < target_min:
-        remaining = [cand for cand, score in sorted(candidate_recs, key=lambda x: x[1], reverse=True) if
-                     cand not in new_main_deck]
-        for cand in remaining:
+        remaining_candidates = [cand for cand, score in original_candidates if cand not in new_main_deck]
+        fallback_list = fallback_recommendations(input_cards, main_decks, top_n=target_max)
+        combined_pool = list(dict.fromkeys(remaining_candidates + [card for card, _ in fallback_list]))
+        for cand in combined_pool:
             copies = avg_main.get(cand, 1)
             while deck_counter[cand] < copies and len(new_main_deck) < target_min:
                 new_main_deck.append(cand)
                 deck_counter[cand] += 1
             if len(new_main_deck) >= target_min:
                 break
+
+    # Last resort: if still below target_min, duplicate an input card.
+    while len(new_main_deck) < target_min:
+        new_main_deck.append(input_cards[0])
+
     return new_main_deck
 
 
@@ -504,7 +524,55 @@ def convert_frozensets(obj):
 
 
 ###################################
-# Part 8: Main Function
+# Part 8: Extra & Side Deck Filtering (New)
+###################################
+
+def get_filtered_extra_decks(input_cards, full_decks):
+    """Returns extra deck lists from decks whose main deck contains an input card."""
+    return [deck["extra"] for deck in full_decks if deck["extra"] and any(card in deck["main"] for card in input_cards)]
+
+
+def build_extra_deck_filtered(input_cards, full_decks, target_extra):
+    """
+    Builds an extra deck using only extra decks from decks whose main deck contains an input card.
+    Uses frequency counts from this filtered pool.
+    """
+    filtered = get_filtered_extra_decks(input_cards, full_decks)
+    if not filtered:
+        return []
+    all_extra = []
+    for deck in filtered:
+        all_extra.extend(deck)
+    freq = Counter(all_extra)
+    sorted_candidates = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    candidates = list(dict.fromkeys([cand for cand, _ in sorted_candidates]))
+    return candidates[:target_extra]
+
+
+def get_filtered_side_decks(input_cards, full_decks):
+    """Returns side deck lists from decks whose main deck contains an input card."""
+    return [deck["side"] for deck in full_decks if deck["side"] and any(card in deck["main"] for card in input_cards)]
+
+
+def build_side_deck_filtered(input_cards, full_decks, target_side):
+    """
+    Builds a side deck using only side decks from decks whose main deck contains an input card.
+    Uses frequency counts from this filtered pool.
+    """
+    filtered = get_filtered_side_decks(input_cards, full_decks)
+    if not filtered:
+        return []
+    all_side = []
+    for deck in filtered:
+        all_side.extend(deck)
+    freq = Counter(all_side)
+    sorted_candidates = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    candidates = list(dict.fromkeys([cand for cand, _ in sorted_candidates]))
+    return candidates[:target_side]
+
+
+###################################
+# Part 9: Main Function
 ###################################
 
 def main():
@@ -569,7 +637,7 @@ def main():
         else:
             boosted_recs.append((card, score))
     boosted_recs.sort(key=lambda x: x[1], reverse=True)
-    # Apply synergy filtering so that if a candidate depends on another card which isn't available, drop it.
+    # Apply synergy filtering to drop candidates lacking their synergy partner
     filtered_boosted_recs = filter_synergy_candidates(boosted_recs, card_info)
     print("Combined, boosted, and synergy-filtered contextual main deck recommendations:")
     for card, score in filtered_boosted_recs:
@@ -581,27 +649,18 @@ def main():
 
     # ---- Build Extended Main Deck (Between 40 and 60 Cards) ----
     new_main_deck = build_main_deck_extended(input_cards, filtered_boosted_recs, main_decks, avg_main, card_info,
-                                             ner_pipe, target_min=target_min_main, target_max=target_max_main,
-                                             drop_threshold=0.7)
+                                             ner_pipe,
+                                             target_min=target_min_main, target_max=target_max_main, drop_threshold=0.7)
     print(f"Main deck constructed with {len(new_main_deck)} cards.")
 
-    # ---- Extra Deck Recommendations (Contextual) ----
-    extra_assoc = recommend_extra_deck_contextual(input_cards, full_decks, top_n=10, min_decks=3)
-    extra_freq = fallback_extra_deck(input_cards, full_decks, top_n=10)
-    combined_extra = combine_recommendations(extra_assoc, extra_freq)
-    candidate_extra = [card for card, _ in combined_extra]
-    new_extra_deck = build_section_deck_simple(candidate_extra, target_extra_size)
-    # If fewer than target_extra_size, fill with fallback extra deck candidates
+    # ---- Build Extra Deck (Contextual) ----
+    new_extra_deck = build_extra_deck_filtered(input_cards, full_decks, target_extra_size)
     if len(new_extra_deck) < target_extra_size:
         fallback_extra = [card for card, _ in fallback_extra_deck(input_cards, full_decks, top_n=target_extra_size * 2)]
         new_extra_deck = fill_section_deck(new_extra_deck, fallback_extra, target_extra_size)
 
-    # ---- Side Deck Recommendations (Contextual) ----
-    side_assoc = recommend_side_deck_contextual(input_cards, full_decks, top_n=10, min_decks=3)
-    side_freq = fallback_side_deck(input_cards, full_decks, top_n=10)
-    combined_side = combine_recommendations(side_assoc, side_freq)
-    candidate_side = [card for card, _ in combined_side]
-    new_side_deck = build_section_deck_simple(candidate_side, target_side_size)
+    # ---- Build Side Deck (Contextual) ----
+    new_side_deck = build_side_deck_filtered(input_cards, full_decks, target_side_size)
     if len(new_side_deck) < target_side_size:
         fallback_side = [card for card, _ in fallback_side_deck(input_cards, full_decks, top_n=target_side_size * 2)]
         new_side_deck = fill_section_deck(new_side_deck, fallback_side, target_side_size)
