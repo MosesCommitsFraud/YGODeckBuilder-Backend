@@ -1,15 +1,20 @@
 import os
 import json
+import itertools
+from collections import Counter, defaultdict
 import pandas as pd
 import requests
 from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import apriori, association_rules
 
 
-# 1. Parsing .ydk Files
+##############################
+# Part 1: Data Loading & Parsing
+##############################
+
 def parse_ydk_file(file_path):
     """
-    Parses a .ydk deck file and extracts the main, extra, and side deck card IDs.
+    Parses a .ydk file into a dictionary with keys "main", "extra", and "side".
     """
     main_deck = []
     extra_deck = []
@@ -21,21 +26,19 @@ def parse_ydk_file(file_path):
             line = line.strip()
             if not line:
                 continue
-            # Detect section markers
             if line.startswith("#"):
-                if line.lower().startswith("#main"):
+                if "main" in line.lower():
                     current_section = "main"
-                elif line.lower().startswith("#extra"):
+                elif "extra" in line.lower():
                     current_section = "extra"
                 else:
                     current_section = None
             elif line.startswith("!"):
-                if line.lower().startswith("!side"):
+                if "side" in line.lower():
                     current_section = "side"
                 else:
                     current_section = None
-            else:
-                # Assume line is a card ID
+            elif line.isdigit() and current_section:
                 if current_section == "main":
                     main_deck.append(line)
                 elif current_section == "extra":
@@ -45,26 +48,29 @@ def parse_ydk_file(file_path):
     return {"main": main_deck, "extra": extra_deck, "side": side_deck}
 
 
-def load_decks(directory):
+def load_full_decks(ydk_folder):
     """
-    Loads all .ydk files from a directory and returns a list of main decks.
-    Each main deck is represented as a list of card IDs (strings).
+    Loads all .ydk files from a folder and returns a list of decks,
+    each as a dict with keys "main", "extra", and "side".
+    Only decks with a main deck of 40–60 cards are included.
     """
     decks = []
-    for filename in os.listdir(directory):
+    for filename in os.listdir(ydk_folder):
         if filename.endswith(".ydk"):
-            file_path = os.path.join(directory, filename)
+            file_path = os.path.join(ydk_folder, filename)
             deck = parse_ydk_file(file_path)
-            # Only use decks with a valid main deck (Yu-Gi-Oh! main decks are 40-60 cards)
             if 40 <= len(deck["main"]) <= 60:
-                decks.append(deck["main"])
+                decks.append(deck)
     return decks
 
 
-# 2. Build Transaction DataFrame for Association Rule Mining
+##############################
+# Part 2: Association Rule Mining (Main Deck Only)
+##############################
+
 def build_transaction_df(decks):
     """
-    Converts a list of decks (transactions) into a one-hot encoded DataFrame.
+    Converts a list of main decks (each a list of card IDs) into a one-hot encoded DataFrame.
     """
     te = TransactionEncoder()
     te_ary = te.fit(decks).transform(decks)
@@ -72,141 +78,257 @@ def build_transaction_df(decks):
     return df
 
 
-# 3. Mine Frequent Itemsets and Association Rules with adjusted parameters
 def mine_rules(df, min_support=0.05, min_confidence=0.5, max_len=3):
     """
-    Uses the Apriori algorithm to mine frequent itemsets and then generates association rules.
-    Adjusted parameters: higher min_support and max_len to reduce memory usage.
+    Mines frequent itemsets and association rules using Apriori.
+    Returns both the frequent itemsets and the rules DataFrame.
     """
     frequent_itemsets = apriori(df, min_support=min_support, use_colnames=True, max_len=max_len)
     rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=min_confidence)
-    return rules
+    return frequent_itemsets, rules
 
 
-# 4. Recommend Cards Based on Input Cards (Updated Matching Logic)
 def recommend_cards(input_cards, rules, top_n=5):
     """
-    Given a list of input card IDs (as strings) and association rules,
-    recommends additional cards. This version relaxes matching:
-    if any input card appears in the rule antecedents, the rest of the consequents are recommended.
-    Returns a list of tuples: (card_id, average_confidence).
+    Given a list of input card IDs and association rules,
+    recommends additional main deck cards.
+    If any input card appears in a rule's antecedents, the consequent cards are recommended.
+    Returns a list of tuples (card_id, avg_confidence).
     """
-    recommendations = {}
+    recommendations = defaultdict(list)
     input_set = set(input_cards)
     matched_rule_count = 0
 
     for idx, rule in rules.iterrows():
         antecedents = set(rule['antecedents'])
         consequents = set(rule['consequents'])
-        # Check if there's any overlap between input_set and antecedents
         if input_set.intersection(antecedents):
             matched_rule_count += 1
-            new_cards = consequents - input_set  # avoid recommending cards already in the input
+            new_cards = consequents - input_set
             for card in new_cards:
-                recommendations.setdefault(card, []).append(rule['confidence'])
+                recommendations[card].append(rule['confidence'])
 
-    print(f"Found {matched_rule_count} rules that match the input cards.")
+    print(f"Found {matched_rule_count} association rules matching the input cards.")
 
-    # Rank recommendations by average confidence.
     ranked = []
-    for card, confidences in recommendations.items():
-        avg_conf = sum(confidences) / len(confidences)
+    for card, confs in recommendations.items():
+        avg_conf = sum(confs) / len(confs)
         ranked.append((card, avg_conf))
     ranked.sort(key=lambda x: x[1], reverse=True)
     return ranked[:top_n]
 
 
-# 5. Fallback Recommendation: Co-occurrence Frequency
-def fallback_recommendations(input_cards, decks, top_n=5):
+def fallback_recommendations(input_cards, main_decks, top_n=5):
     """
-    As a fallback, count the frequency of cards that co-occur with the input cards in decks.
+    If no association rules match the input, fall back on co-occurrence frequency.
+    Returns a list of tuples (card_id, frequency) from the main decks.
     """
     input_set = set(input_cards)
-    co_occur = {}
-    for deck in decks:
-        # If the deck contains the input cards (or at least one of them)
+    co_occur = Counter()
+    for deck in main_decks:
         if input_set.intersection(set(deck)):
             for card in deck:
                 if card not in input_set:
-                    co_occur[card] = co_occur.get(card, 0) + 1
-    # Sort by frequency (highest first)
-    ranked = sorted(co_occur.items(), key=lambda x: x[1], reverse=True)
-    return ranked[:top_n]
+                    co_occur[card] += 1
+    ranked = co_occur.most_common(top_n)
+    return ranked
 
 
-# 6. Fetch & Cache Card Details from YGOPRODeck API
-def get_card_details(card_id, cache_file="card_cache.json"):
+##############################
+# Part 3: Deck Construction (Main, Extra, & Side)
+##############################
+
+def build_new_deck(input_cards, recommendations, main_decks, extra_counter, side_counter,
+                   target_main=40, target_extra=15, target_side=15):
     """
-    Retrieves card details from the YGOPRODeck API.
-    Caches results locally to reduce API calls.
+    Constructs a complete deck containing main, extra, and side decks.
+
+    - Main deck: starts with input cards, then adds recommended cards (max 3 copies each),
+      and fills remaining slots using the most frequent main deck cards.
+    - Extra deck: filled with the most frequent extra deck cards (unique; max 1 copy per card).
+    - Side deck: filled with the most frequent side deck cards (max 3 copies each).
+
+    Returns a dictionary with keys "main", "extra", and "side".
     """
-    # Load cache if available
-    try:
-        with open(cache_file, "r") as f:
-            cache = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        cache = {}
+    deck_counter = Counter()  # for main deck (max 3 copies per card)
+    new_deck = {"main": [], "extra": [], "side": []}
 
-    # Check if card details are already cached
-    if str(card_id) in cache:
-        return cache[str(card_id)]
+    # Build main deck
+    for card in input_cards:
+        new_deck["main"].append(card)
+        deck_counter[card] += 1
 
-    # Fetch card details from the API
-    url = f"https://db.ygoprodeck.com/api/v7/cardinfo.php?id={card_id}"
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        if "data" in data and len(data["data"]) > 0:
-            card_info = data["data"][0]
-            cache[str(card_id)] = card_info
-            # Update the cache file
-            with open(cache_file, "w") as f:
-                json.dump(cache, f)
-            return card_info
-    return None
+    # Add recommended main deck cards
+    for card, _ in recommendations:
+        while deck_counter[card] < 3 and len(new_deck["main"]) < target_main:
+            new_deck["main"].append(card)
+            deck_counter[card] += 1
+            if len(new_deck["main"]) >= target_main:
+                break
+
+    # If still not enough, fill with most frequent main deck cards from training data
+    if len(new_deck["main"]) < target_main:
+        all_main_cards = []
+        for d in main_decks:
+            all_main_cards.extend(d)
+        card_freq = Counter(all_main_cards)
+        for card, _ in card_freq.most_common():
+            while deck_counter[card] < 3 and len(new_deck["main"]) < target_main:
+                new_deck["main"].append(card)
+                deck_counter[card] += 1
+            if len(new_deck["main"]) >= target_main:
+                break
+
+    # Build extra deck (use frequency counts; only 1 copy per card)
+    extra_deck = []
+    for card, _ in extra_counter.most_common():
+        if len(extra_deck) < target_extra:
+            if card not in new_deck["main"] and card not in extra_deck:
+                extra_deck.append(card)
+        else:
+            break
+    new_deck["extra"] = extra_deck
+
+    # Build side deck (allow up to 3 copies per card)
+    side_deck = []
+    side_deck_counter = Counter()
+    for card, _ in side_counter.most_common():
+        while side_deck_counter[card] < 3 and len(side_deck) < target_side:
+            # Avoid duplicating cards already in main or extra decks
+            if card not in new_deck["main"] and card not in new_deck["extra"]:
+                side_deck.append(card)
+                side_deck_counter[card] += 1
+            if len(side_deck) >= target_side:
+                break
+    new_deck["side"] = side_deck
+
+    return new_deck
 
 
-# 7. Example Main Function Tying Everything Together
+def write_ydk(deck, filename):
+    """
+    Writes the complete deck (with main, extra, and side sections) to a .ydk file.
+    """
+    with open(filename, "w") as f:
+        f.write("#main\n")
+        for card in deck["main"]:
+            f.write(card + "\n")
+        f.write("#extra\n")
+        for card in deck["extra"]:
+            f.write(card + "\n")
+        f.write("!side\n")
+        for card in deck["side"]:
+            f.write(card + "\n")
+    print(f"Deck saved to {filename}")
+
+
+##############################
+# Part 4: Helper for JSON Serialization
+##############################
+
+def convert_frozensets(obj):
+    """
+    Recursively converts frozenset objects to lists for JSON serialization.
+    """
+    if isinstance(obj, frozenset):
+        return list(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_frozensets(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_frozensets(item) for item in obj]
+    else:
+        return obj
+
+
+##############################
+# Part 5: Main Function
+##############################
+
 def main():
-    # --- SETTINGS ---
-    decks_directory = "ydk_download"  # Update this path to your .ydk files directory.
-    min_support = 0.05  # Adjust as needed: lowering this may generate more rules.
-    min_confidence = 0.5  # Confidence threshold.
-    max_itemset_length = 3  # Limit the size of itemsets (e.g., only pairs or triplets).
-    top_n_recommendations = 5
+    # ---- Settings ----
+    # Folder containing your .ydk files (update this path as needed)
+    ydk_folder = "ydk_download"
+    # Association rule mining parameters (for main deck)
+    min_support = 0.05
+    min_confidence = 0.5
+    max_itemset_length = 3
+    # Target deck sizes
+    target_main_size = 40
+    target_extra_size = 15
+    target_side_size = 15
+    # Output file names
+    trained_model_file = "trained_model.json"
+    new_deck_file = "generated_deck.ydk"
 
-    # --- Load and Process Deck Data ---
-    print("Loading decks...")
-    decks = load_decks(decks_directory)
-    print(f"Loaded {len(decks)} decks.")
+    # ---- Load Full Decks ----
+    print("Loading full decks (main, extra, side)...")
+    full_decks = load_full_decks(ydk_folder)
+    print(f"Loaded {len(full_decks)} decks.")
 
-    print("Building transaction DataFrame...")
-    df = build_transaction_df(decks)
+    # Separate main decks for association rule mining (using only the main deck cards)
+    main_decks = [deck["main"] for deck in full_decks]
 
-    # --- Mine Association Rules ---
-    print("Mining association rules...")
-    rules = mine_rules(df, min_support=min_support, min_confidence=min_confidence, max_len=max_itemset_length)
+    # Compute frequency counters for extra and side decks from full decks
+    extra_counter = Counter()
+    side_counter = Counter()
+    for deck in full_decks:
+        for card in deck["extra"]:
+            extra_counter[card] += 1
+        for card in deck["side"]:
+            side_counter[card] += 1
+
+    # ---- Build Transaction DataFrame & Mine Rules (Main Deck) ----
+    print("Building transaction DataFrame for main decks...")
+    df = build_transaction_df(main_decks)
+    print("Mining association rules on main decks...")
+    frequent_itemsets, rules = mine_rules(df, min_support=min_support, min_confidence=min_confidence,
+                                          max_len=max_itemset_length)
     print(f"Mined {len(rules)} association rules.")
 
-    # --- Get Recommendations ---
-    # For example, assume the user has chosen a starting card with ID "89631139"
-    input_cards = ["21767650"]
-    recs = recommend_cards(input_cards, rules, top_n=top_n_recommendations)
+    # ---- Output Trained Model ----
+    freq_itemsets_dict = convert_frozensets(frequent_itemsets.to_dict(orient="records"))
+    assoc_rules_dict = convert_frozensets(rules.to_dict(orient="records"))
+    model = {
+        "frequent_itemsets": freq_itemsets_dict,
+        "association_rules": assoc_rules_dict
+    }
+    with open(trained_model_file, "w") as f:
+        json.dump(model, f, indent=4)
+    print(f"Trained model saved to {trained_model_file}")
 
+    # ---- Get User Input for Base Cards ----
+    user_input = input("Enter base card IDs (separated by commas): ")
+    input_cards = [card.strip() for card in user_input.split(",") if card.strip()]
+    if not input_cards:
+        print("No input cards provided. Exiting.")
+        return
+
+    # ---- Get Recommendations for Main Deck ----
+    recs = recommend_cards(input_cards, rules, top_n=10)
     if not recs:
         print("No recommendations found using association rules. Falling back to co-occurrence counts.")
-        recs = fallback_recommendations(input_cards, decks, top_n=top_n_recommendations)
-        # The fallback returns (card_id, frequency), so we handle it slightly differently.
-        for card, freq in recs:
-            details = get_card_details(card)
-            card_name = details["name"] if details and "name" in details else "Unknown Card"
-            print(f"Fallback - Card ID: {card} - {card_name} | Co-occurrence Frequency: {freq}")
+        recs = fallback_recommendations(input_cards, main_decks, top_n=10)
+        # recs from fallback are (card, frequency) tuples.
     else:
-        print("Recommended cards based on your input:")
-        for card_id, avg_conf in recs:
-            details = get_card_details(card_id)
-            card_name = details["name"] if details and "name" in details else "Unknown Card"
-            print(f"Card ID: {card_id} - {card_name} | Avg Confidence: {avg_conf:.2f}")
+        print("Recommendations from association rules for main deck:")
+        for card, conf in recs:
+            print(f"Card {card} with avg confidence {conf:.2f}")
+
+    # ---- Build New Complete Deck (Main, Extra, Side) ----
+    new_deck = build_new_deck(input_cards, recs, main_decks, extra_counter, side_counter,
+                              target_main=target_main_size,
+                              target_extra=target_extra_size,
+                              target_side=target_side_size)
+    print(f"New deck built:")
+    print("Main deck ({} cards):".format(len(new_deck["main"])))
+    print("\n".join(new_deck["main"]))
+    print("Extra deck ({} cards):".format(len(new_deck["extra"])))
+    print("\n".join(new_deck["extra"]))
+    print("Side deck ({} cards):".format(len(new_deck["side"])))
+    print("\n".join(new_deck["side"]))
+
+    # ---- Write the Complete Deck to a .ydk File ----
+    write_ydk(new_deck, new_deck_file)
 
 
 if __name__ == "__main__":
