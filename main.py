@@ -1,523 +1,735 @@
 import os
 import json
+import itertools
+from collections import Counter, defaultdict
+import pandas as pd
 import requests
-from collections import Counter
+import warnings
+import pickle
 
-# Global cache for card data
-CARD_CACHE = {}
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+###################################
+# Configuration – IMPORTANT VARIABLES
+###################################
+# Boost factors (modify these to adjust how strongly synergy and archetype signals affect candidate scoring)
+SYNERGY_BOOST_FACTOR = 1.5  # Multiplier when a candidate card’s name/description matches synergy context tokens
+EXTRA_SYNERGY_BOOST = 1.5  # Additional multiplier when a candidate is explicitly referenced
+ARCHETYPE_BOOST_FACTOR = 1.5  # Multiplier when a candidate card matches an archetype found in input cards
+
+# Association rule mining thresholds (affect which frequent itemsets and rules are mined)
+MIN_SUPPORT = 0.05  # Minimum support for frequent itemsets
+MIN_CONFIDENCE = 0.5  # Minimum confidence for association rules
+MAX_ITEMSET_LENGTH = 3  # Maximum length (number of items) in frequent itemsets
+
+# Target deck sizes (these define the output deck size constraints)
+TARGET_MIN_MAIN = 40  # Minimum number of cards in the Main Deck
+TARGET_MAX_MAIN = 60  # Maximum number of cards in the Main Deck
+TARGET_EXTRA_SIZE = 15  # Desired size of the Extra Deck
+TARGET_SIDE_SIZE = 15  # Desired size of the Side Deck
+
+# Candidate filtering threshold
+DROP_THRESHOLD = 0.5  # Relative threshold to drop low-scoring candidate recommendations
+
+# Duplicate filtering in side deck:
+# A candidate is filtered out from the side deck if it appears 3+ times in main or 1+ time in extra.
+MAIN_DUPLICATE_LIMIT = 3
+EXTRA_DUPLICATE_LIMIT = 1
+
+# File and folder settings
+CARDINFO_FILE = "cardinfo.json"  # Local file for card information
+ARCHETYPES_FILE = "archetypes.json"  # JSON file containing archetypes
+YDK_FOLDER = "ydk_download"  # Folder containing .ydk deck files
+TRAINED_MODEL_FILE = "trained_model.pkl"  # Output file for the trained model (pickle)
+OUTPUT_DECK_FILE = "generated_deck.ydk"  # Output file for the generated deck
+
+###################################
+# Transformers for NER
+###################################
+from transformers import pipeline
+
+ner_pipe = pipeline("token-classification", model="dslim/bert-base-NER")
 
 
-def load_card_cache(cache_filename="cards.json"):
-    """
-    Loads the entire card database from a local cache.
-    If the cache file does not exist, download the data from the API and save it.
-    Returns a dictionary mapping card IDs (as strings) to their card info.
-    """
-    global CARD_CACHE
-    if os.path.exists(cache_filename):
-        with open(cache_filename, "r") as f:
-            data = json.load(f)
+###################################
+# Card Info Loading & Helpers
+###################################
+def load_card_info(filename=CARDINFO_FILE):
+    """Loads card info from a local JSON file (or downloads if missing)."""
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f:
+            card_data = json.load(f)
     else:
-        print("Downloading card data from API...")
         url = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
         response = requests.get(url)
-        data = response.json()
-        with open(cache_filename, "w") as f:
-            json.dump(data, f)
-    CARD_CACHE = {str(card["id"]): card for card in data["data"]}
-    return CARD_CACHE
+        response.raise_for_status()
+        card_data = response.json()
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(card_data, f, indent=4)
+    return {str(card["id"]): card for card in card_data.get("data", [])}
 
 
-def get_card_info(card_id):
+def get_card_category(card, card_info):
+    """Returns 'Monster', 'Spell', or 'Trap' based on the card's type."""
+    if card in card_info:
+        t = card_info[card].get("type", "")
+        if "Spell" in t:
+            return "Spell"
+        elif "Trap" in t:
+            return "Trap"
+        else:
+            return "Monster"
+    return "Monster"
+
+
+def get_extra_category(card, card_info):
+    """Categorizes extra deck cards (Fusion, Synchro, XYZ, Link, Pendulum, Other)."""
+    if card in card_info:
+        t = card_info[card].get("type", "").lower()
+        if "fusion" in t:
+            return "Fusion"
+        elif "synchro" in t:
+            return "Synchro"
+        elif "xyz" in t:
+            return "XYZ"
+        elif "link" in t:
+            return "Link"
+        elif "pendulum" in t:
+            return "Pendulum"
+        else:
+            return "Other"
+    return "Other"
+
+
+###################################
+# Dependency Extraction Helpers
+###################################
+def extract_referenced_card_ids(description, name_to_id):
     """
-    Retrieve card information from the local cache.
+    Scans a description (lowercased) for substrings matching known card names.
+    Returns a set of card IDs that are referenced.
     """
-    if not CARD_CACHE:
-        load_card_cache()
-    return CARD_CACHE.get(card_id)
+    return {card_id for name, card_id in name_to_id.items() if name in description.lower()}
 
 
-# ---------------------------
-# Parsing .ydk files
-# ---------------------------
+def filter_synergy_candidates(boosted_recs, card_info):
+    """
+    Filters out candidate cards whose descriptions indicate dependencies on other cards
+    if none of the required cards appear among the candidate recommendations.
+    """
+    name_to_id = {card_info[c]["name"].lower(): c for c in card_info if "name" in card_info[c]}
+    candidate_ids = {card for card, _ in boosted_recs}
+    filtered = []
+    for card, score in boosted_recs:
+        if card not in card_info:
+            filtered.append((card, score))
+            continue
+        dependencies = extract_referenced_card_ids(card_info[card].get("desc", ""), name_to_id)
+        if dependencies and not dependencies.intersection(candidate_ids):
+            continue
+        filtered.append((card, score))
+    return filtered
+
+
+###################################
+# YDK Parsing & Deck Loading
+###################################
 def parse_ydk_file(file_path):
-    """
-    Parse a .ydk deck file into main, extra, and side sections.
-    """
+    """Parses a .ydk file into a dict with keys 'main', 'extra', and 'side'."""
     main_deck, extra_deck, side_deck = [], [], []
     current_section = None
-    with open(file_path, 'r') as f:
+    with open(file_path, "r") as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            if line == "#main":
-                current_section = "main"
-                continue
-            elif line == "#extra":
-                current_section = "extra"
-                continue
-            elif line == "!side":
-                current_section = "side"
-                continue
-            if current_section == "main":
-                main_deck.append(line)
-            elif current_section == "extra":
-                extra_deck.append(line)
-            elif current_section == "side":
-                side_deck.append(line)
-    return main_deck, extra_deck, side_deck
+            if line.startswith("#"):
+                if "main" in line.lower():
+                    current_section = "main"
+                elif "extra" in line.lower():
+                    current_section = "extra"
+                else:
+                    current_section = None
+            elif line.startswith("!"):
+                if "side" in line.lower():
+                    current_section = "side"
+                else:
+                    current_section = None
+            elif line.isdigit() and current_section:
+                if current_section == "main":
+                    main_deck.append(line)
+                elif current_section == "extra":
+                    extra_deck.append(line)
+                elif current_section == "side":
+                    side_deck.append(line)
+    return {"main": main_deck, "extra": extra_deck, "side": side_deck}
 
 
-# ---------------------------
-# Historical Composition Analysis
-# ---------------------------
-def compute_average_deck_composition(deck_files):
+def load_full_decks(ydk_folder=YDK_FOLDER):
     """
-    Computes the global average counts of monsters, spells, and traps in the main decks.
+    Loads all .ydk files from a folder.
+    Only decks with a main deck size between 40 and 60 are kept.
     """
-    total_monsters = total_spells = total_traps = 0
-    deck_count = 0
-    for deck_file in deck_files:
-        main_deck, _, _ = parse_ydk_file(deck_file)
-        for card_id in main_deck:
-            info = get_card_info(card_id)
-            if not info:
-                continue
-            ctype = info.get("type", "")
-            if "Monster" in ctype:
-                total_monsters += 1
-            elif "Spell" in ctype:
-                total_spells += 1
-            elif "Trap" in ctype:
-                total_traps += 1
-        deck_count += 1
-    if deck_count == 0:
-        return 0, 0, 0
-    return total_monsters / deck_count, total_spells / deck_count, total_traps / deck_count
+    decks = []
+    for filename in os.listdir(ydk_folder):
+        if filename.endswith(".ydk"):
+            path = os.path.join(ydk_folder, filename)
+            deck = parse_ydk_file(path)
+            if 40 <= len(deck["main"]) <= 60:
+                decks.append(deck)
+    return decks
 
 
-def compute_card_deck_composition(card_id, deck_files):
-    """
-    For decks that include card_id in the main deck, compute the average composition.
-    Returns a tuple: (avg_monsters, avg_spells, avg_traps)
-    """
-    total_monsters = total_spells = total_traps = 0
-    count = 0
-    for deck_file in deck_files:
-        main_deck, _, _ = parse_ydk_file(deck_file)
-        if card_id in main_deck:
-            for cid in main_deck:
-                info = get_card_info(cid)
-                if not info:
-                    continue
-                ctype = info.get("type", "")
-                if "Monster" in ctype:
-                    total_monsters += 1
-                elif "Spell" in ctype:
-                    total_spells += 1
-                elif "Trap" in ctype:
-                    total_traps += 1
-            count += 1
-    if count == 0:
-        return (0, 0, 0)
-    return (total_monsters / count, total_spells / count, total_traps / count)
+###################################
+# Association Rule Mining Helpers
+###################################
+def build_transaction_df(deck_lists):
+    """Converts a list of decks into a one‑hot encoded DataFrame."""
+    from mlxtend.preprocessing import TransactionEncoder
+    te = TransactionEncoder()
+    te_ary = te.fit(deck_lists).transform(deck_lists)
+    return pd.DataFrame(te_ary, columns=te.columns_)
 
 
-def compute_average_deck_for_input_cards(input_cards, deck_files):
-    """
-    Averages the deck composition for each input card over historical decks.
-    """
-    totals = [0, 0, 0]
-    count = 0
-    for card in input_cards:
-        comp = compute_card_deck_composition(card, deck_files)
-        if sum(comp) > 0:
-            totals[0] += comp[0]
-            totals[1] += comp[1]
-            totals[2] += comp[2]
-            count += 1
-    if count == 0:
-        return compute_average_deck_composition(deck_files)
-    return (totals[0] / count, totals[1] / count, totals[2] / count)
+def mine_rules(df, min_support=MIN_SUPPORT, min_confidence=MIN_CONFIDENCE, max_len=MAX_ITEMSET_LENGTH):
+    """Mines frequent itemsets and association rules using Apriori."""
+    from mlxtend.frequent_patterns import apriori, association_rules
+    freq_itemsets = apriori(df, min_support=min_support, use_colnames=True, max_len=max_len)
+    rules = association_rules(freq_itemsets, metric="confidence", min_threshold=min_confidence)
+    return freq_itemsets, rules
 
 
-# ---------------------------
-# Recommendation functions
-# ---------------------------
-def get_card_neighbors(target_card, deck_files):
-    """
-    Returns a Counter of cards that appear in the same decks as target_card.
-    """
-    neighbor_counter = Counter()
-    for deck_file in deck_files:
-        main_deck, extra_deck, side_deck = parse_ydk_file(deck_file)
-        all_cards = main_deck + extra_deck + side_deck
-        if target_card in all_cards:
-            for card in all_cards:
-                if card != target_card:
-                    neighbor_counter[card] += 1
-    return neighbor_counter
+def recommend_cards(input_cards, rules, top_n=10):
+    """Generates recommendations from association rules."""
+    recs = defaultdict(list)
+    input_set = set(input_cards)
+    for _, rule in rules.iterrows():
+        if input_set.intersection(set(rule['antecedents'])):
+            for card in set(rule['consequents']) - input_set:
+                recs[card].append(rule['confidence'])
+    ranked = [(card, sum(confs) / len(confs)) for card, confs in recs.items()]
+    return sorted(ranked, key=lambda x: x[1], reverse=True)[:top_n]
 
 
-def get_section_frequency(deck_files, section):
-    """
-    Returns a frequency counter for all cards appearing in the specified section ('main', 'extra', or 'side')
-    across all historical decks.
-    """
+def fallback_recommendations(input_cards, decks, top_n=10):
+    """Provides fallback frequency-based recommendations."""
     freq = Counter()
-    for deck_file in deck_files:
-        main_deck, extra_deck, side_deck = parse_ydk_file(deck_file)
-        if section == "main":
-            freq.update(main_deck)
-        elif section == "extra":
-            freq.update(extra_deck)
-        elif section == "side":
-            freq.update(side_deck)
-    return freq
+    input_set = set(input_cards)
+    for deck in decks:
+        if input_set.intersection(set(deck)):
+            for card in deck:
+                if card not in input_set:
+                    freq[card] += 1
+    return freq.most_common(top_n)
 
 
-# ---------------------------
-# Dropoff check helper:
-# ---------------------------
-def fill_from_sorted_recommendations(sorted_recs, desired_size, dropoff_ratio=0.3):
+def recommend_main_deck_by_input(input_cards, main_decks, top_n=10):
+    """Provides frequency-based recommendations for the main deck."""
+    filtered = [deck for deck in main_decks if any(card in deck for card in input_cards)]
+    freq = Counter(card for deck in filtered for card in deck if card not in input_cards)
+    return freq.most_common(top_n)
+
+
+def combine_recommendations(assoc, freq):
+    """Combines association-rule and frequency-based recommendations."""
+    combined = {}
+    max_freq = max(freq, key=lambda x: x[1])[1] if freq else 1
+    for card, conf in assoc:
+        combined[card] = conf
+    for card, count in freq:
+        norm = count / max_freq
+        combined[card] = (combined.get(card, 0) + norm) / (2 if card in combined else 1)
+    return sorted(combined.items(), key=lambda x: x[1], reverse=True)
+
+
+def recommend_main_deck_contextual(input_cards, main_decks, top_n=10, min_decks=5):
+    """Generates contextual recommendations from decks containing input cards."""
+    filtered = [deck for deck in main_decks if any(card in deck for card in input_cards)]
+    if len(filtered) < min_decks:
+        return []
+    df_context = build_transaction_df(filtered)
+    _, rules_context = mine_rules(df_context)
+    recs = defaultdict(list)
+    input_set = set(input_cards)
+    for _, rule in rules_context.iterrows():
+        if input_set.intersection(set(rule['antecedents'])):
+            for card in set(rule['consequents']) - input_set:
+                recs[card].append(rule['confidence'])
+    ranked = [(card, sum(confs) / len(confs)) for card, confs in recs.items()]
+    return sorted(ranked, key=lambda x: x[1], reverse=True)[:top_n]
+
+
+###################################
+# Statistical Averages
+###################################
+def compute_average_copies_main(main_decks):
+    """Computes average copies (capped at 3) for main deck cards."""
+    total, cnt = defaultdict(int), defaultdict(int)
+    for deck in main_decks:
+        for card, copies in Counter(deck).items():
+            total[card] += copies
+            cnt[card] += 1
+    return {card: min(3, round(total[card] / cnt[card])) for card in total}
+
+
+def compute_average_copies_side(full_decks):
+    """Computes average copies (capped at 3) for side deck cards."""
+    total, cnt = defaultdict(int), defaultdict(int)
+    for deck in full_decks:
+        for card, copies in Counter(deck["side"]).items():
+            total[card] += copies
+            cnt[card] += 1
+    return {card: min(3, round(total[card] / cnt[card])) for card in total}
+
+
+###################################
+# Extra & Side Deck Filtering
+###################################
+def get_filtered_extra_decks(input_cards, full_decks):
+    """Returns extra deck lists from decks where the main deck contains an input card."""
+    return [deck["extra"] for deck in full_decks if deck["extra"] and any(card in deck["main"] for card in input_cards)]
+
+
+def build_extra_deck_filtered(input_cards, full_decks, target_extra):
+    """Builds an extra deck from filtered extra deck lists using frequency counts."""
+    filtered = get_filtered_extra_decks(input_cards, full_decks)
+    if not filtered:
+        return []
+    all_extra = [card for deck in filtered for card in deck]
+    freq = Counter(all_extra)
+    sorted_candidates = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    candidates = list(dict.fromkeys([cand for cand, _ in sorted_candidates]))
+    return candidates[:target_extra]
+
+
+def get_filtered_side_decks(input_cards, full_decks):
+    """Returns side deck lists from decks where the main deck contains an input card."""
+    return [deck["side"] for deck in full_decks if deck["side"] and any(card in deck["main"] for card in input_cards)]
+
+
+def build_side_deck_filtered(input_cards, full_decks, target_side):
+    """Builds a side deck from filtered side deck lists using frequency counts."""
+    filtered = get_filtered_side_decks(input_cards, full_decks)
+    if not filtered:
+        return []
+    all_side = [card for deck in filtered for card in deck]
+    freq = Counter(all_side)
+    sorted_candidates = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+    candidates = list(dict.fromkeys([cand for cand, _ in sorted_candidates]))
+    return candidates[:target_side]
+
+
+###################################
+# New: Contextual Extra Deck Builder
+###################################
+def build_extra_deck_contextual(input_extra, full_decks, target_extra, card_info, ner_pipe, archetypes,
+                                fallback_context):
     """
-    Given sorted recommendations as a list of tuples (card_id, frequency),
-    add cards until desired_size is reached.
-    If the frequency of the next card is below dropoff_ratio * (max frequency), then stop.
+    Constructs an extra deck using synergy and archetype boosting.
+    Candidate pool is drawn from extra deck sections; if no input_extra is provided, fallback_context is used.
     """
-    deck_section = []
-    if not sorted_recs:
-        return deck_section
-    max_freq = sorted_recs[0][1]
-    for card, freq in sorted_recs:
-        if len(deck_section) >= desired_size:
-            break
-        if freq < dropoff_ratio * max_freq:
-            break
-        if card not in deck_section:
-            deck_section.append(card)
-    return deck_section
+    context_source = input_extra if input_extra else fallback_context
+    candidate_lists = get_filtered_extra_decks(context_source, full_decks)
+    candidates = list({card for deck in candidate_lists for card in deck})
+
+    freq_counter = Counter()
+    for deck in full_decks:
+        if any(card in deck["main"] for card in context_source):
+            for card in deck["extra"]:
+                freq_counter[card] += 1
+
+    agg_entities = {word for card in context_source if card in card_info
+                    for word in
+                    (card_info[card]["name"].lower().split() + card_info[card].get("desc", "").lower().split())}
+    context_archetypes = {arch.lower().strip('"')
+                          for card in context_source if card in card_info
+                          for arch in archetypes
+                          if arch.lower().strip('"') in (
+                                      card_info[card]["name"].lower() + " " + card_info[card].get("desc", "").lower())}
+
+    candidate_scores = []
+    for candidate in candidates:
+        baseline = freq_counter[candidate]
+        score = baseline
+        if candidate in card_info:
+            candidate_text = card_info[candidate]["name"].lower() + " " + card_info[candidate].get("desc", "").lower()
+            if any(entity in candidate_text for entity in agg_entities):
+                score *= SYNERGY_BOOST_FACTOR
+            if any(arch in candidate_text for arch in context_archetypes):
+                score *= ARCHETYPE_BOOST_FACTOR
+        candidate_scores.append((candidate, score))
+    candidate_scores.sort(key=lambda x: x[1], reverse=True)
+    return [card for card, score in candidate_scores[:target_extra]]
 
 
-# ---------------------------
-# Copy Count Analysis
-# ---------------------------
-def compute_average_copy(card_id, deck_files):
+###################################
+# New: Contextual Side Deck Builder (Input-Based)
+###################################
+def build_side_deck_contextual(input_cards, full_decks, target_side, card_info, ner_pipe, archetypes, main_deck,
+                               extra_deck):
     """
-    Computes the average number of copies of a given card in historical main decks.
-    Returns at least 1 (and rounds to nearest integer, capped at 3).
+    Constructs a side deck based on input cards and synergy with decks where those cards appear.
+    Candidate pool is drawn from both side and extra deck sections of training decks that contain at least one input card.
+    Additionally, filters out any candidate that already appears in the main deck at least 3 times or in the extra deck at least once.
     """
-    total_copies = 0
-    deck_count = 0
-    for deck_file in deck_files:
-        main_deck, _, _ = parse_ydk_file(deck_file)
-        if card_id in main_deck:
-            total_copies += main_deck.count(card_id)
-            deck_count += 1
-    if deck_count == 0:
-        return 1
-    avg = total_copies / deck_count
-    return max(1, min(3, round(avg)))
+    side_candidate_lists = get_filtered_side_decks(input_cards, full_decks)
+    extra_candidate_lists = get_filtered_extra_decks(input_cards, full_decks)
+    candidates = list(
+        {card for deck in side_candidate_lists for card in deck} | {card for deck in extra_candidate_lists for card in
+                                                                    deck})
 
+    freq_counter = Counter()
+    for deck in full_decks:
+        if any(card in deck["main"] for card in input_cards):
+            for card in deck["side"]:
+                freq_counter[card] += 1
+            for card in deck["extra"]:
+                freq_counter[card] += 1
 
-def adjust_main_deck_copy_counts(unique_deck, deck_files, desired_size):
-    """
-    Given a unique list of card IDs, replicate each card based on its average copy count.
-    If adding the recommended copies would exceed desired_size, add as many as possible.
-    Returns a new main deck list (which may have duplicates).
-    """
-    new_deck = []
-    for card in unique_deck:
-        rec_copies = compute_average_copy(card, deck_files)
-        for _ in range(rec_copies):
-            if len(new_deck) < desired_size:
-                new_deck.append(card)
-            else:
-                break
-        if len(new_deck) >= desired_size:
-            break
-    idx = 0
-    while len(new_deck) < desired_size and unique_deck:
-        card = unique_deck[idx % len(unique_deck)]
-        new_deck.append(card)
-        idx += 1
-    return new_deck
+    agg_entities = {word for card in input_cards if card in card_info
+                    for word in
+                    (card_info[card]["name"].lower().split() + card_info[card].get("desc", "").lower().split())}
+    input_archetypes = {arch.lower().strip('"')
+                        for card in input_cards if card in card_info
+                        for arch in archetypes
+                        if arch.lower().strip('"') in (
+                                    card_info[card]["name"].lower() + " " + card_info[card].get("desc", "").lower())}
 
+    candidate_scores = []
+    for candidate in candidates:
+        baseline = freq_counter[candidate]
+        score = baseline
+        if candidate in card_info:
+            candidate_text = card_info[candidate]["name"].lower() + " " + card_info[candidate].get("desc", "").lower()
+            if any(entity in candidate_text for entity in agg_entities):
+                score *= SYNERGY_BOOST_FACTOR
+            if any(arch in candidate_text for arch in input_archetypes):
+                score *= ARCHETYPE_BOOST_FACTOR
+        candidate_scores.append((candidate, score))
+    candidate_scores.sort(key=lambda x: x[1], reverse=True)
 
-# ---------------------------
-# Build Main Deck
-# ---------------------------
-def build_main_deck(input_cards, deck_files, desired_main_deck_size=40, dropoff_ratio=0.3):
-    """
-    Build a main deck based on input cards and recommendations.
-    Uses the average deck composition from decks that contain the input cards,
-    falling back to the global historical average if needed.
-    Then adjusts copy counts based on historical averages.
-    """
-    target_monsters, target_spells, target_traps = compute_average_deck_for_input_cards(input_cards, deck_files)
-    print(f"\nTarget main deck composition based on input cards:")
-    print(f"  Monsters: {target_monsters:.1f}, Spells: {target_spells:.1f}, Traps: {target_traps:.1f}\n")
-
-    unique_main = list(input_cards)
-
-    recommendations = Counter()
-    for card in input_cards:
-        recs = get_card_neighbors(card, deck_files)
-        recommendations.update(recs)
-    sorted_recs = recommendations.most_common()
-
-    current_counts = {"Monster": 0, "Spell": 0, "Trap": 0}
-    for card in unique_main:
-        info = get_card_info(card)
-        if info:
-            ctype = info.get("type", "")
-            if "Monster" in ctype:
-                current_counts["Monster"] += 1
-            elif "Spell" in ctype:
-                current_counts["Spell"] += 1
-            elif "Trap" in ctype:
-                current_counts["Trap"] += 1
-
-    for rec_card, freq in sorted_recs:
-        if len(unique_main) >= desired_main_deck_size:
-            break
-        if freq < dropoff_ratio * sorted_recs[0][1]:
-            break
-        if rec_card in unique_main:
+    # Filter out candidate if it appears >=3 times in main_deck or >=1 time in extra_deck.
+    filtered_candidates = []
+    for candidate, score in candidate_scores:
+        if main_deck.count(candidate) >= MAIN_DUPLICATE_LIMIT or extra_deck.count(candidate) >= EXTRA_DUPLICATE_LIMIT:
             continue
-        info = get_card_info(rec_card)
-        if not info:
-            continue
-        ctype = info.get("type", "")
-        if "Monster" in ctype and current_counts["Monster"] < target_monsters:
-            unique_main.append(rec_card)
-            current_counts["Monster"] += 1
-        elif "Spell" in ctype and current_counts["Spell"] < target_spells:
-            unique_main.append(rec_card)
-            current_counts["Spell"] += 1
-        elif "Trap" in ctype and current_counts["Trap"] < target_traps:
-            unique_main.append(rec_card)
-            current_counts["Trap"] += 1
+        filtered_candidates.append(candidate)
 
-    for rec_card, _ in sorted_recs:
-        if len(unique_main) >= desired_main_deck_size:
-            break
-        if rec_card not in unique_main:
-            unique_main.append(rec_card)
-
-    final_main = adjust_main_deck_copy_counts(unique_main, deck_files, desired_main_deck_size)
-    return final_main
+    return filtered_candidates[:target_side]
 
 
-# ---------------------------
-# Build Extra Deck
-# ---------------------------
-def build_extra_deck(deck_files, desired_extra_deck_size=15, dropoff_ratio=0.3):
+###################################
+# Main Deck Distribution Analysis & Filling
+###################################
+def compute_desired_distribution_main(main_decks, card_info, target_size):
     """
-    Build an extra deck by analyzing historical extra deck cards.
-    Only include cards appropriate for the extra deck (Fusion, Synchro, Xyz, or Link monsters).
+    Computes the average distribution (Monster, Spell, Trap) from training decks scaled to target_size.
     """
-    freq_extra = get_section_frequency(deck_files, "extra")
-    valid_extra = {}
-    for card_id, freq in freq_extra.items():
-        info = get_card_info(card_id)
-        if not info:
-            continue
-        ctype = info.get("type", "").lower()
-        if any(keyword in ctype for keyword in ["fusion", "synchro", "xyz", "link"]):
-            valid_extra[card_id] = freq
-    sorted_recs = sorted(valid_extra.items(), key=lambda x: x[1], reverse=True)
-    extra_deck = fill_from_sorted_recommendations(sorted_recs, desired_extra_deck_size, dropoff_ratio)
-    return extra_deck
-
-
-# ---------------------------
-# Build Side Deck
-# ---------------------------
-def build_side_deck(deck_files, desired_side_deck_size=15, dropoff_ratio=0.3):
-    """
-    Build a side deck by analyzing historical side deck cards.
-    """
-    freq_side = get_section_frequency(deck_files, "side")
-    sorted_recs = sorted(freq_side.items(), key=lambda x: x[1], reverse=True)
-    side_deck = fill_from_sorted_recommendations(sorted_recs, desired_side_deck_size, dropoff_ratio)
-    return side_deck
-
-
-# ---------------------------
-# Banlist & Deck Validation (Ruleset)
-# ---------------------------
-def fetch_banlist():
-    """
-    Fetches the official banlist from YGOProDeck.
-    """
-    url = "https://db.ygoprodeck.com/api/v7/cardinfo.php?banlist=tcg"
-    response = requests.get(url)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        print("Failed to retrieve banlist.")
-        return None
-
-
-def validate_deck(main_deck, side_deck, extra_deck):
-    """
-    Validates the complete deck against official rules:
-      - Main Deck must have 40 to 60 cards.
-      - Extra Deck must have no more than 15 cards and only include Fusion, Synchro, Xyz, or Link monsters.
-      - Side Deck must have no more than 15 cards.
-      - A card’s total copies (across all sections) must not exceed 3 (unless limited).
-      - Forbidden cards are not allowed.
-    """
-    errors = []
-
-    # Rule: Main Deck size 40-60
-    if not (40 <= len(main_deck) <= 60):
-        errors.append(f"Main Deck must have 40 to 60 cards (currently {len(main_deck)}).")
-
-    # Rule: Extra Deck size <=15
-    if len(extra_deck) > 15:
-        errors.append(f"Extra Deck must have 15 or fewer cards (currently {len(extra_deck)}).")
-
-    # Rule: Side Deck size <=15
-    if len(side_deck) > 15:
-        errors.append(f"Side Deck must have 15 or fewer cards (currently {len(side_deck)}).")
-
-    banlist_data = fetch_banlist()
-    forbidden_cards = []
-    limited_cards = []
-    semi_limited_cards = []
-    if banlist_data:
-        for card in banlist_data['data']:
-            ban_status = card.get('banlist_info', {})
-            if ban_status.get('ban_tcg') == "Forbidden":
-                forbidden_cards.append(card['name'])
-            elif ban_status.get('ban_tcg') == "Limited":
-                limited_cards.append(card['name'])
-            elif ban_status.get('ban_tcg') == "Semi-Limited":
-                semi_limited_cards.append(card['name'])
-
-    all_cards = main_deck + extra_deck + side_deck
-    card_names = [get_card_info(card)["name"] for card in all_cards if get_card_info(card)]
-    counts = Counter(card_names)
-
-    # Rule: Forbidden cards
-    for name in card_names:
-        if name in forbidden_cards:
-            errors.append(f"Forbidden card '{name}' is in the deck.")
-
-    # Rule: Copy limits (3 copies normally; 1 for Limited; 2 for Semi-Limited)
-    for name, count in counts.items():
-        if name in limited_cards and count > 1:
-            errors.append(f"Limited card '{name}' appears {count} times (maximum 1 allowed).")
-        elif name in semi_limited_cards and count > 2:
-            errors.append(f"Semi-Limited card '{name}' appears {count} times (maximum 2 allowed).")
-        elif count > 3:
-            errors.append(f"Card '{name}' appears {count} times (maximum 3 allowed).")
-
-    # Rule: Extra Deck must only include valid Extra Deck monsters.
-    for card in extra_deck:
-        info = get_card_info(card)
-        if info:
-            ctype = info.get("type", "").lower()
-            if not any(x in ctype for x in ["fusion", "synchro", "xyz", "link"]):
-                errors.append(f"Extra Deck card '{info.get('name')}' is not a Fusion, Synchro, Xyz, or Link monster.")
-
-    # Output results.
-    if errors:
-        print("\n--- Deck Validation Errors ---")
-        for error in errors:
-            print(error)
-    else:
-        print("\nDeck validation complete: The deck complies with official rules.")
-
-    return errors
-
-
-# ---------------------------
-# Export Deck to .ydk File
-# ---------------------------
-def export_deck_to_ydk(deck, deck_name):
-    """
-    Exports the deck as a .ydk file.
-    The file format is:
-      !name <deck name>
-      #main
-      <sorted main deck card IDs>
-      #extra
-      <sorted extra deck card IDs>
-      !side
-      <sorted side deck card IDs>
-    Sorting is by card type for readability.
-    """
-    filename = f"{deck_name}.ydk"
-    sorted_main = sorted(deck["main"], key=lambda cid: get_card_info(cid).get("type", ""))
-    sorted_extra = sorted(deck["extra"], key=lambda cid: get_card_info(cid).get("type", ""))
-    sorted_side = sorted(deck["side"], key=lambda cid: get_card_info(cid).get("type", ""))
-
-    with open(filename, "w") as f:
-        f.write(f"!name {deck_name}\n")
-        f.write("#main\n")
-        for card in sorted_main:
-            f.write(f"{card}\n")
-        f.write("#extra\n")
-        for card in sorted_extra:
-            f.write(f"{card}\n")
-        f.write("!side\n")
-        for card in sorted_side:
-            f.write(f"{card}\n")
-    print(f"\nDeck exported to {filename}")
-
-
-# ---------------------------
-# Main Execution with Console Input
-# ---------------------------
-if __name__ == "__main__":
-    # Load card data cache.
-    load_card_cache()
-
-    # Use the "ydk_download" folder (in the current directory) for historical deck files.
-    deck_directory = os.path.join(os.getcwd(), "ydk_download")
-    if not os.path.isdir(deck_directory):
-        print(f"Directory '{deck_directory}' not found. Please ensure it exists.")
-        exit(1)
-
-    deck_files = [os.path.join(deck_directory, f) for f in os.listdir(deck_directory) if f.endswith('.ydk')]
-    if not deck_files:
-        print("No .ydk files found in the specified directory.")
-        exit(1)
-
-    # Get starting main deck card IDs from the console (comma-separated).
-    input_cards_raw = input("Enter the starting main deck card IDs (comma separated): ")
-    input_cards = [card.strip() for card in input_cards_raw.split(",") if card.strip()]
-
-    # Build the deck sections.
-    new_main = build_main_deck(input_cards, deck_files, desired_main_deck_size=40, dropoff_ratio=0.3)
-    new_extra = build_extra_deck(deck_files, desired_extra_deck_size=15, dropoff_ratio=0.3)
-    new_side = build_side_deck(deck_files, desired_side_deck_size=15, dropoff_ratio=0.3)
-
-    # Validate the complete deck using the official rules.
-    validate_deck(new_main, new_side, new_extra)
-
-    # Display the built decks.
-    print("\nBuilt Main Deck (card IDs):")
-    for card in new_main:
-        print(card)
-
-    print("\nBuilt Extra Deck (card IDs):")
-    for card in new_extra:
-        print(card)
-
-    print("\nBuilt Side Deck (card IDs):")
-    for card in new_side:
-        print(card)
-
-    # Ask for a deck name and export the deck.
-    deck_name = input("\nEnter the name for the new deck: ").strip()
-    final_deck = {
-        "main": new_main,
-        "extra": new_extra,
-        "side": new_side
+    total_monster, total_spell, total_trap = 0, 0, 0
+    for deck in main_decks:
+        total_monster += sum(1 for card in deck if get_card_category(card, card_info) == "Monster")
+        total_spell += sum(1 for card in deck if get_card_category(card, card_info) == "Spell")
+        total_trap += sum(1 for card in deck if get_card_category(card, card_info) == "Trap")
+    count = len(main_decks)
+    if count == 0:
+        return {"Monster": target_size, "Spell": 0, "Trap": 0}
+    avg_monster = total_monster / count
+    avg_spell = total_spell / count
+    avg_trap = total_trap / count
+    total_avg = avg_monster + avg_spell + avg_trap
+    return {
+        "Monster": round((avg_monster / total_avg) * target_size),
+        "Spell": round((avg_spell / total_avg) * target_size),
+        "Trap": target_size - round((avg_monster / total_avg) * target_size) - round(
+            (avg_spell / total_avg) * target_size)
     }
-    export_deck_to_ydk(final_deck, deck_name)
+
+
+def fill_missing_main_types(new_main_deck, main_decks, card_info, desired_distribution, avg_main, input_cards):
+    """
+    Enforces the desired distribution (for a 60-card deck) by adding fallback candidates per category.
+    """
+    current = Counter(get_card_category(card, card_info) for card in new_main_deck)
+    for category, desired in desired_distribution.items():
+        fallback_candidates = [card for card, _ in fallback_recommendations(input_cards, main_decks, top_n=100)
+                               if get_card_category(card, card_info) == category and card not in new_main_deck]
+        idx = 0
+        while current[category] < desired and len(new_main_deck) < 60:
+            if idx >= len(fallback_candidates):
+                break
+            candidate = fallback_candidates[idx]
+            new_main_deck.append(candidate)
+            current[get_card_category(candidate, card_info)] += 1
+            idx += 1
+    return new_main_deck
+
+
+###################################
+# Additional Helpers for Main Deck Construction
+###################################
+def get_aggregated_entities(card_list, card_info, ner_pipe):
+    """
+    Aggregates named entities from the descriptions of all cards in card_list.
+    Returns a set of lowercased tokens.
+    """
+    entities = set()
+    for card in card_list:
+        if card in card_info:
+            desc = card_info[card].get("desc", "")
+            if desc:
+                results = ner_pipe(desc)
+                for res in results:
+                    entities.add(res["word"].lower())
+    return entities
+
+
+def extract_references_from_deck(card_list, card_info, name_to_id):
+    """
+    Extracts referenced card IDs from the descriptions of all cards in card_list.
+    """
+    refs = set()
+    for card in card_list:
+        if card in card_info:
+            desc = card_info[card].get("desc", "")
+            refs |= extract_referenced_card_ids(desc, name_to_id)
+    return refs
+
+
+def boost_with_context(candidate_score, candidate, aggregated_entities, aggregated_refs, card_info,
+                       boost_factor=SYNERGY_BOOST_FACTOR, extra_boost=EXTRA_SYNERGY_BOOST):
+    """
+    Boosts candidate score if candidate's name matches tokens in aggregated_entities
+    or if candidate is explicitly referenced in aggregated_refs.
+    """
+    candidate_name = card_info[candidate]["name"].lower() if candidate in card_info else ""
+    new_score = candidate_score
+    if any(entity in candidate_name or candidate_name in entity for entity in aggregated_entities):
+        new_score *= boost_factor
+    if candidate in aggregated_refs:
+        new_score *= extra_boost
+    return new_score
+
+
+def boost_with_archetypes(candidate_score, candidate, input_cards, card_info, archetypes,
+                          boost_factor=ARCHETYPE_BOOST_FACTOR):
+    """
+    Boosts candidate score if any archetype (from the provided list) appears in any input card's name or description
+    and also appears in the candidate card's name or description.
+    """
+    input_archetypes = set()
+    for card in input_cards:
+        if card in card_info:
+            name_lower = card_info[card]["name"].lower()
+            desc_lower = card_info[card].get("desc", "").lower()
+            for archetype in archetypes:
+                archetype_lower = archetype.lower().strip('"')
+                if archetype_lower in name_lower or archetype_lower in desc_lower:
+                    input_archetypes.add(archetype_lower)
+    if candidate in card_info:
+        candidate_text = card_info[candidate]["name"].lower() + " " + card_info[candidate].get("desc", "").lower()
+        for archetype in input_archetypes:
+            if archetype in candidate_text:
+                candidate_score *= boost_factor
+                break
+    return candidate_score
+
+
+def build_main_deck_extended(input_cards, candidate_recs, main_decks, avg_main, card_info, ner_pipe,
+                             target_min=TARGET_MIN_MAIN, target_max=TARGET_MAX_MAIN, drop_threshold=DROP_THRESHOLD,
+                             archetypes=[]):
+    """
+    Iteratively builds the main deck between target_min and target_max cards.
+    Uses boosted candidate recommendations; if synergy filtering removes too many cards,
+    fills the deck from a combined fallback pool.
+    Incorporates both synergy- and archetype-based boosting.
+    """
+    name_to_id = {card_info[c]["name"].lower(): c for c in card_info if "name" in card_info[c]}
+    new_main_deck = list(input_cards)
+    deck_counter = Counter(new_main_deck)
+    original_candidates = sorted(candidate_recs, key=lambda x: x[1], reverse=True)
+    candidates = candidate_recs[:]  # Copy of candidate_recs
+    while len(new_main_deck) < target_max and candidates:
+        aggregated_entities = get_aggregated_entities(new_main_deck, card_info, ner_pipe)
+        aggregated_refs = extract_references_from_deck(new_main_deck, card_info, name_to_id)
+        updated_candidates = []
+        for card, score in candidates:
+            if deck_counter[card] < avg_main.get(card, 1):
+                new_score = boost_with_context(score, card, aggregated_entities, aggregated_refs, card_info)
+                new_score = boost_with_archetypes(new_score, card, input_cards, card_info, archetypes)
+                updated_candidates.append((card, new_score))
+        if not updated_candidates:
+            break
+        updated_candidates.sort(key=lambda x: x[1], reverse=True)
+        best_score = updated_candidates[0][1]
+        filtered_candidates = [cand for cand in updated_candidates if cand[1] >= best_score * drop_threshold]
+        for cand, score in filtered_candidates:
+            copies = avg_main.get(cand, 1)
+            while deck_counter[cand] < copies and len(new_main_deck) < target_max:
+                new_main_deck.append(cand)
+                deck_counter[cand] += 1
+        candidates = [(card, score) for card, score in updated_candidates if deck_counter[card] < avg_main.get(card, 1)]
+        if not candidates:
+            break
+    if len(new_main_deck) < target_min:
+        remaining_candidates = [cand for cand, _ in original_candidates if cand not in new_main_deck]
+        fallback_list = [card for card, _ in fallback_recommendations(input_cards, main_decks, top_n=target_max)]
+        combined_pool = list(dict.fromkeys(remaining_candidates + fallback_list))
+        for cand in combined_pool:
+            copies = avg_main.get(cand, 1)
+            while deck_counter[cand] < copies and len(new_main_deck) < target_min:
+                new_main_deck.append(cand)
+                deck_counter[cand] += 1
+            if len(new_main_deck) >= target_min:
+                break
+    while len(new_main_deck) < target_min:
+        new_main_deck.append(input_cards[0])
+    return new_main_deck
+
+
+###################################
+# Write Deck to File
+###################################
+def write_ydk(deck, filename):
+    """Writes the complete deck (main, extra, side) to a .ydk file."""
+    with open(filename, "w") as f:
+        f.write("#main\n")
+        for card in deck["main"]:
+            f.write(card + "\n")
+        f.write("#extra\n")
+        for card in deck["extra"]:
+            f.write(card + "\n")
+        f.write("!side\n")
+        for card in deck["side"]:
+            f.write(card + "\n")
+    print(f"Deck saved to {filename}")
+
+
+###################################
+# JSON Serialization Helper
+###################################
+def convert_frozensets(obj):
+    if isinstance(obj, frozenset):
+        return list(obj)
+    elif isinstance(obj, dict):
+        return {key: convert_frozensets(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_frozensets(item) for item in obj]
+    else:
+        return obj
+
+
+###################################
+# Main Function
+###################################
+def main():
+    # Load card info and archetypes.
+    card_info = load_card_info()
+    with open(ARCHETYPES_FILE, "r", encoding="utf-8") as f:
+        archetypes = json.load(f)
+
+    # Load training decks.
+    print("Loading full decks...")
+    full_decks = load_full_decks(YDK_FOLDER)
+    print(f"Loaded {len(full_decks)} decks.")
+
+    # Separate decks by section.
+    main_decks = [deck["main"] for deck in full_decks]
+    extra_decks = [deck["extra"] for deck in full_decks if deck["extra"]]
+    side_decks = [deck["side"] for deck in full_decks if deck["side"]]
+
+    # Global rule mining on main decks.
+    print("Mining global rules for main decks...")
+    df = build_transaction_df(main_decks)
+    freq_itemsets, rules = mine_rules(df)
+    print(f"Mined {len(rules)} global association rules for main deck.")
+    model = {
+        "frequent_itemsets": convert_frozensets(freq_itemsets.to_dict(orient="records")),
+        "association_rules": convert_frozensets(rules.to_dict(orient="records"))
+    }
+    with open(TRAINED_MODEL_FILE, "wb") as f:
+        pickle.dump(model, f)
+    print(f"Trained model saved to {TRAINED_MODEL_FILE}")
+
+    # Get user input for base cards.
+    user_input_main = input("Enter base MAIN deck card IDs (separated by commas): ")
+    input_main_cards = [card.strip() for card in user_input_main.split(",") if card.strip()]
+
+    user_input_extra = input("Enter base EXTRA deck card IDs (separated by commas, if any): ")
+    input_extra_cards = [card.strip() for card in user_input_extra.split(",") if card.strip()]
+
+    user_input_side = input("Enter base SIDE deck card IDs (separated by commas, if any): ")
+    input_side_cards = [card.strip() for card in user_input_side.split(",") if card.strip()]
+
+    if not input_main_cards:
+        print("No base MAIN deck cards provided. Exiting.")
+        return
+
+    # Main deck recommendations.
+    context_recs = recommend_main_deck_contextual(input_main_cards, main_decks, top_n=10, min_decks=5)
+    freq_recs = recommend_main_deck_by_input(input_main_cards, main_decks, top_n=10)
+    combined_recs = combine_recommendations(context_recs, freq_recs)
+    initial_context = get_aggregated_entities(input_main_cards, card_info, ner_pipe)
+
+    boosted_recs = []
+    for card, score in combined_recs:
+        new_score = score
+        if card in card_info:
+            if any(entity in card_info[card]["name"].lower() or card_info[card]["name"].lower() in entity for entity in
+                   initial_context):
+                new_score *= SYNERGY_BOOST_FACTOR
+        new_score = boost_with_archetypes(new_score, card, input_main_cards, card_info, archetypes)
+        boosted_recs.append((card, new_score))
+    boosted_recs.sort(key=lambda x: x[1], reverse=True)
+    filtered_boosted_recs = filter_synergy_candidates(boosted_recs, card_info)
+    print("Main deck candidate recommendations:")
+    for card, score in filtered_boosted_recs:
+        print(f"Card {card} - Score: {score:.2f}")
+
+    avg_main = compute_average_copies_main(main_decks)
+    avg_side = compute_average_copies_side(full_decks)
+
+    new_main_deck = build_main_deck_extended(input_main_cards, filtered_boosted_recs, main_decks, avg_main, card_info,
+                                             ner_pipe,
+                                             target_min=TARGET_MIN_MAIN, target_max=TARGET_MAX_MAIN,
+                                             drop_threshold=DROP_THRESHOLD, archetypes=archetypes)
+    print(f"Main deck constructed with {len(new_main_deck)} cards.")
+
+    desired_distribution = compute_desired_distribution_main(main_decks, card_info, target_size=TARGET_MAX_MAIN)
+    print("Desired main deck distribution (for 60 cards):", desired_distribution)
+    new_main_deck = fill_missing_main_types(new_main_deck, main_decks, card_info, desired_distribution, avg_main,
+                                            input_main_cards)
+    print(f"Main deck after enforcing distribution: {len(new_main_deck)} cards.")
+
+    # Extra deck construction.
+    extra_context = input_extra_cards if input_extra_cards else input_main_cards
+    new_extra_deck = build_extra_deck_contextual(extra_context, full_decks, TARGET_EXTRA_SIZE, card_info, ner_pipe,
+                                                 archetypes, input_main_cards)
+    if len(new_extra_deck) < TARGET_EXTRA_SIZE:
+        fallback_extra = [card for card, _ in
+                          fallback_recommendations(input_main_cards, full_decks, top_n=TARGET_EXTRA_SIZE * 2)]
+        new_extra_deck = fill_missing_main_types(new_extra_deck, main_decks, card_info, desired_distribution, avg_main,
+                                                 input_main_cards)
+
+    # Side deck construction.
+    new_side_deck = build_side_deck_contextual(input_main_cards, full_decks, TARGET_SIDE_SIZE, card_info, ner_pipe,
+                                               archetypes,
+                                               new_main_deck, new_extra_deck)
+    if len(new_side_deck) < TARGET_SIDE_SIZE:
+        fallback_side = [card for card, _ in
+                         fallback_recommendations(input_main_cards, full_decks, top_n=TARGET_SIDE_SIZE * 2)]
+        new_side_deck = fill_missing_main_types(new_side_deck, main_decks, card_info, desired_distribution, avg_main,
+                                                input_main_cards)
+
+    new_deck = {"main": new_main_deck, "extra": new_extra_deck, "side": new_side_deck}
+    print("New deck built:")
+    print("Main deck ({} cards):".format(len(new_deck["main"])))
+    print("\n".join(new_deck["main"]))
+    print("Extra deck ({} cards):".format(len(new_deck["extra"])))
+    print("\n".join(new_deck["extra"]))
+    print("Side deck ({} cards):".format(len(new_deck["side"])))
+    print("\n".join(new_deck["side"]))
+    write_ydk(new_deck, OUTPUT_DECK_FILE)
+
+
+if __name__ == "__main__":
+    main()
