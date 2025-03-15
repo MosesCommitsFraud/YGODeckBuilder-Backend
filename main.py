@@ -850,9 +850,160 @@ def build_main_deck_improved(input_cards, main_decks, card_info, archetypes, avg
     return completed_deck
 
 
-def build_extra_deck_improved(input_cards, full_decks, card_info, archetypes, main_deck=None):
+###################################
+# Optimized Fallback Functions
+###################################
+def find_generic_extra_deck_candidates_optimized(main_deck, card_info, max_candidates=50):
     """
-    Build an improved extra deck with better synergy and input card preservation.
+    Optimized version to find generic extra deck monsters compatible with the main deck.
+    Limits search scope to prevent timeouts.
+    """
+    candidates = set()
+
+    # Quick analysis of main deck properties
+    main_deck_levels = {}
+    main_deck_types = {}
+    has_tuners = False
+
+    # Limit analysis to first 20 cards to save time
+    for card in main_deck[:20]:
+        if card in card_info:
+            card_data = card_info[card]
+
+            # Check if this is a tuner
+            if "tuner" in card_data.get("type", "").lower():
+                has_tuners = True
+
+            # Track levels for xyz/synchro matching
+            level = card_data.get("level", 0)
+            if level > 0:
+                main_deck_levels[level] = main_deck_levels.get(level, 0) + 1
+
+            # Track monster types
+            card_type = card_data.get("race", "")
+            if card_type:
+                main_deck_types[card_type] = main_deck_types.get(card_type, 0) + 1
+
+    # Get most common levels and types
+    common_levels = sorted(main_deck_levels.items(), key=lambda x: x[1], reverse=True)[:3]
+    common_types = sorted(main_deck_types.items(), key=lambda x: x[1], reverse=True)[:2]
+
+    # Create a smaller subset of cards to search through
+    # This dramatically reduces processing time
+    sample_size = 1000  # Limit to checking 1000 cards max
+    card_sample = list(card_info.items())[:sample_size]
+
+    # Find compatible extra deck monsters
+    candidate_count = 0
+    for card_id, card_data in card_sample:
+        # Stop if we have enough candidates
+        if candidate_count >= max_candidates:
+            break
+
+        if not is_valid_extra_deck_card(card_id, card_info):
+            continue
+
+        card_type = card_data.get("type", "").lower()
+        added = False
+
+        # Check for generic Extra Deck monsters
+        desc = card_data.get("desc", "").lower()
+        if ("fusion" in card_type and "fusion material" in desc and "monster" in desc) or \
+                ("synchro" in card_type and has_tuners and "1 tuner" in desc) or \
+                ("xyz" in card_type and any(level[0] == card_data.get("level", 0) for level in common_levels)) or \
+                ("link" in card_type and "2+ monster" in desc):
+            candidates.add(card_id)
+            candidate_count += 1
+            added = True
+
+        # If not added yet, check type matches
+        if not added:
+            card_race = card_data.get("race", "")
+            if card_race and any(card_race == common_type[0] for common_type in common_types):
+                candidates.add(card_id)
+                candidate_count += 1
+
+    return list(candidates)
+
+
+def find_generic_side_deck_candidates_optimized(main_deck, card_info, max_candidates=50):
+    """
+    Optimized version to find generic side deck cards.
+    Limits search scope to prevent timeouts.
+    """
+    candidates = set()
+    staple_candidates = set()
+
+    # Quick analysis of main deck
+    monsters = 0
+    spells = 0
+    traps = 0
+
+    # Limit analysis to first 20 cards to save time
+    for card in main_deck[:20]:
+        if card in card_info:
+            category = get_card_category(card, card_info)
+            if category == "Monster":
+                monsters += 1
+            elif category == "Spell":
+                spells += 1
+            else:
+                traps += 1
+
+    # Determine if deck is monster-heavy or spell/trap-heavy
+    total = monsters + spells + traps
+    monster_ratio = monsters / total if total > 0 else 0.5
+
+    # Create a smaller subset of cards to search through
+    sample_size = 1000  # Limit to checking 1000 cards max
+    card_sample = list(card_info.items())[:sample_size]
+
+    # Include some general staples based on deck type
+    candidate_count = 0
+    for card_id, card_data in card_sample:
+        # Stop if we have enough candidates
+        if candidate_count >= max_candidates:
+            break
+
+        if is_extra_deck_card(card_id, card_info):
+            continue
+
+        category = get_card_category(card_id, card_info)
+        desc = card_data.get("desc", "").lower()
+
+        # Generic staples for any deck (high priority)
+        if any(term in desc for term in ["negate", "destroy", "banish"]):
+            if category == "Monster" and "hand" in desc and "discard" in desc:
+                staple_candidates.add(card_id)  # Hand traps
+                candidate_count += 1
+            elif category == "Spell" and "quick" in desc:
+                staple_candidates.add(card_id)  # Quick-play spells
+                candidate_count += 1
+            elif category == "Trap" and "counter" in desc:
+                staple_candidates.add(card_id)  # Counter traps
+                candidate_count += 1
+
+        # For monster-heavy decks, add board wipes
+        if monster_ratio > 0.6 and category == "Spell" and "destroy all" in desc:
+            candidates.add(card_id)
+            candidate_count += 1
+
+        # For spell/trap-heavy decks, add protection
+        if monster_ratio < 0.4 and "cannot be target" in desc:
+            candidates.add(card_id)
+            candidate_count += 1
+
+    # Combine and return results
+    all_candidates = list(staple_candidates) + list(candidates)
+    return all_candidates[:max_candidates]
+
+
+###################################
+# Optimized Extra & Side Deck Builders
+###################################
+def build_extra_deck_improved_optimized(input_cards, full_decks, card_info, archetypes, main_deck=None):
+    """
+    Optimized extra deck builder with streamlined fallback mechanism.
     """
     # Start with valid input extra deck cards
     valid_input_extra = [card for card in input_cards if is_valid_extra_deck_card(card, card_info)]
@@ -862,77 +1013,40 @@ def build_extra_deck_improved(input_cards, full_decks, card_info, archetypes, ma
     if len(new_extra_deck) >= TARGET_EXTRA_SIZE:
         return new_extra_deck[:TARGET_EXTRA_SIZE]
 
-    # Combine input cards with main deck for synergy context
-    synergy_context = input_cards
-    if main_deck:
-        synergy_context = list(set(synergy_context + main_deck))
-
-    # Get filtered extra decks for candidates
+    # Use original method first
     filtered_extra = get_filtered_extra_decks(input_cards, full_decks)
 
-    # Build a set of all candidate cards
-    all_candidates = set()
-    for deck in filtered_extra:
-        for card in deck:
-            if is_valid_extra_deck_card(card, card_info) and card not in new_extra_deck:
-                all_candidates.add(card)
+    # Check if we can use the normal method
+    if filtered_extra:
+        # Build the deck using the original method
+        candidates = set()
+        for deck in filtered_extra:
+            for card in deck:
+                if is_valid_extra_deck_card(card, card_info) and card not in new_extra_deck:
+                    candidates.add(card)
 
-    # Add any cards directly referenced by our context cards
-    referenced_cards = set()
-    for card in synergy_context:
-        refs = extract_referenced_card_ids_advanced(card, card_info)
-        for ref in refs:
-            if is_valid_extra_deck_card(ref, card_info) and ref not in new_extra_deck:
-                referenced_cards.add(ref)
+        # Score and add candidates
+        synergy_context = input_cards + (main_deck if main_deck else [])
+        scored = filter_and_sort_candidates(list(candidates), synergy_context, card_info, archetypes)
 
-    # Add referenced cards first as they have highest priority
-    for card in referenced_cards:
-        if len(new_extra_deck) < TARGET_EXTRA_SIZE:
-            new_extra_deck.append(card)
-
-    # If we still need more cards, score and add by synergy
-    if len(new_extra_deck) < TARGET_EXTRA_SIZE:
-        # Score remaining candidates
-        remaining = [c for c in all_candidates if c not in new_extra_deck]
-        scored = filter_and_sort_candidates(remaining, synergy_context, card_info, archetypes)
-
-        # Add top candidates
         for card, _ in scored:
             if len(new_extra_deck) < TARGET_EXTRA_SIZE:
                 new_extra_deck.append(card)
 
-    # Ensure we have a balanced type distribution
-    current_types = Counter(get_extra_category(card, card_info) for card in new_extra_deck)
+    # If we still need more cards, use the fallback
+    if len(new_extra_deck) < TARGET_EXTRA_SIZE and main_deck:
+        print("Using optimized fallback for extra deck")
+        generic_cards = find_generic_extra_deck_candidates_optimized(main_deck, card_info)
 
-    # If we're missing certain types, try to balance
-    type_targets = {
-        "Fusion": max(1, TARGET_EXTRA_SIZE // 4),
-        "Synchro": max(1, TARGET_EXTRA_SIZE // 4),
-        "XYZ": max(1, TARGET_EXTRA_SIZE // 4),
-        "Link": max(1, TARGET_EXTRA_SIZE // 4)
-    }
+        # Filter out cards already in the deck
+        generic_cards = [c for c in generic_cards if c not in new_extra_deck]
 
-    # Only adjust if we have room
-    if len(new_extra_deck) < TARGET_EXTRA_SIZE:
-        for etype, target in type_targets.items():
-            if current_types.get(etype, 0) < target:
-                # Find candidates of this type
-                type_candidates = [c for c in all_candidates if
-                                   c not in new_extra_deck and
-                                   get_extra_category(c, card_info) == etype]
-
-                # Score them
-                if type_candidates:
-                    scored_type = filter_and_sort_candidates(
-                        type_candidates, synergy_context, card_info, archetypes
-                    )
-
-                    # Add top candidates until target or limit reached
-                    needed = target - current_types.get(etype, 0)
-                    for card, _ in scored_type[:needed]:
-                        if len(new_extra_deck) < TARGET_EXTRA_SIZE:
-                            new_extra_deck.append(card)
-                            current_types[etype] = current_types.get(etype, 0) + 1
+        # Add generic cards
+        for card in generic_cards:
+            if len(new_extra_deck) < TARGET_EXTRA_SIZE:
+                new_extra_deck.append(card)
+                if card in card_info:
+                    print(f"Added fallback extra deck card: {card_info[card].get('name', card)}")
 
     # Final verification of input card preservation
     new_extra_deck = preserve_input_cards(valid_input_extra, new_extra_deck, card_info, is_extra=True)
@@ -940,56 +1054,67 @@ def build_extra_deck_improved(input_cards, full_decks, card_info, archetypes, ma
     return new_extra_deck[:TARGET_EXTRA_SIZE]
 
 
-def build_side_deck_improved(input_cards, full_decks, card_info, archetypes,
-                             main_deck=None, extra_deck=None):
+def build_side_deck_improved_optimized(input_cards, full_decks, card_info, archetypes,
+                                       main_deck=None, extra_deck=None):
     """
-    Build an improved side deck with better synergy and strategic counters.
+    Optimized side deck builder with streamlined fallback mechanism.
     """
     # Start with valid input side deck cards
     valid_input_side = [card for card in input_cards
                         if not is_extra_deck_card(card, card_info) or
                         is_valid_extra_deck_card(card, card_info)]
-
     new_side_deck = list(valid_input_side)
 
     # If we already have enough cards, we're done
     if len(new_side_deck) >= TARGET_SIDE_SIZE:
         return new_side_deck[:TARGET_SIDE_SIZE]
 
-    # Create context for synergy analysis
-    synergy_context = input_cards
-    if main_deck:
-        synergy_context = list(set(synergy_context + main_deck))
-    if extra_deck:
-        synergy_context = list(set(synergy_context + extra_deck))
-
-    # Get filtered side decks for candidates
+    # Use original method first
     filtered_side = get_filtered_side_decks(input_cards, full_decks)
 
-    # Build a set of all candidate cards
-    all_candidates = set()
-    for deck in filtered_side:
-        for card in deck:
-            # Skip cards that are already in main or extra
+    # Check if we can use the normal method
+    if filtered_side:
+        # Build the deck using the original method
+        candidates = set()
+        for deck in filtered_side:
+            for card in deck:
+                # Skip cards that are already in main or extra
+                if (main_deck and card in main_deck) or (extra_deck and card in extra_deck):
+                    continue
+
+                if card not in new_side_deck:
+                    candidates.add(card)
+
+        # Score and add candidates
+        synergy_context = input_cards + (main_deck if main_deck else []) + (extra_deck if extra_deck else [])
+        scored = filter_and_sort_candidates(list(candidates), synergy_context, card_info, archetypes)
+
+        for card, _ in scored:
+            if len(new_side_deck) < TARGET_SIDE_SIZE:
+                new_side_deck.append(card)
+
+    # If we still need more cards, use the fallback
+    if len(new_side_deck) < TARGET_SIDE_SIZE and main_deck:
+        print("Using optimized fallback for side deck")
+        generic_cards = find_generic_side_deck_candidates_optimized(main_deck, card_info)
+
+        # Filter out cards already in any deck part
+        filtered_cards = []
+        for card in generic_cards:
+            if card in new_side_deck:
+                continue
             if main_deck and card in main_deck:
                 continue
             if extra_deck and card in extra_deck:
                 continue
+            filtered_cards.append(card)
 
-            # Extra deck cards must be valid
-            if is_extra_deck_card(card, card_info) and not is_valid_extra_deck_card(card, card_info):
-                continue
-
-            if card not in new_side_deck:
-                all_candidates.add(card)
-
-    # Score candidates
-    scored = filter_and_sort_candidates(all_candidates, synergy_context, card_info, archetypes)
-
-    # Add top candidates
-    for card, _ in scored:
-        if len(new_side_deck) < TARGET_SIDE_SIZE:
-            new_side_deck.append(card)
+        # Add generic cards
+        for card in filtered_cards:
+            if len(new_side_deck) < TARGET_SIDE_SIZE:
+                new_side_deck.append(card)
+                if card in card_info:
+                    print(f"Added fallback side deck card: {card_info[card].get('name', card)}")
 
     # Final verification of input card preservation
     new_side_deck = preserve_input_cards(valid_input_side, new_side_deck, card_info)
@@ -1000,8 +1125,10 @@ def build_side_deck_improved(input_cards, full_decks, card_info, archetypes,
 def build_complete_deck_improved(input_cards, full_decks, card_info, archetypes):
     """
     Build a complete deck with improved synergy detection and input preservation.
-    Ensures extra deck monsters have their required support cards.
+    Uses optimized fallback mechanisms to prevent timeouts with uncommon cards.
     """
+    print(f"Building complete deck with {len(input_cards)} input cards...")
+
     # Extract main decks for average copy calculation
     main_decks = [deck["main"] for deck in full_decks]
 
@@ -1009,26 +1136,41 @@ def build_complete_deck_improved(input_cards, full_decks, card_info, archetypes)
     avg_main = compute_average_copies_main(main_decks)
 
     # Build main deck with improved synergy
+    print("Building main deck...")
     new_main_deck = build_main_deck_improved(
         input_cards, main_decks, card_info, archetypes, avg_main
     )
+    print(f"Main deck built with {len(new_main_deck)} cards")
 
-    # Build extra deck with improved synergy
-    new_extra_deck = build_extra_deck_improved(
+    # Build extra deck with optimized fallback
+    print("Building extra deck...")
+    new_extra_deck = build_extra_deck_improved_optimized(
         input_cards, full_decks, card_info, archetypes, new_main_deck
     )
+    print(f"Extra deck built with {len(new_extra_deck)} cards")
 
     # Ensure main deck contains cards required by Extra Deck monsters
+    print("Ensuring main deck contains required support cards...")
     new_main_deck = ensure_required_cards_in_main(
         new_main_deck, new_extra_deck, card_info
     )
+    print(f"Main deck adjusted to {len(new_main_deck)} cards")
 
-    # Build side deck with improved synergy
-    new_side_deck = build_side_deck_improved(
+    # Build side deck with optimized fallback
+    print("Building side deck...")
+    new_side_deck = build_side_deck_improved_optimized(
         input_cards, full_decks, card_info, archetypes,
         new_main_deck, new_extra_deck
     )
+    print(f"Side deck built with {len(new_side_deck)} cards")
 
+    # Report status
+    if len(new_extra_deck) < TARGET_EXTRA_SIZE:
+        print(f"Note: Extra deck contains {len(new_extra_deck)}/{TARGET_EXTRA_SIZE} cards")
+    if len(new_side_deck) < TARGET_SIDE_SIZE:
+        print(f"Note: Side deck contains {len(new_side_deck)}/{TARGET_SIDE_SIZE} cards")
+
+    print("Deck building completed!")
     return {
         "main": new_main_deck,
         "extra": new_extra_deck,
