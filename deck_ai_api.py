@@ -1,12 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 import uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import uuid
 import traceback
 from collections import Counter, defaultdict
+import pickle
+import numpy as np
+import os
 
 # Import the essential functions from main.py
 from main import (
@@ -36,8 +39,74 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers
 )
 
+# --- Global variables ---
+EMBEDDINGS = {}
 
-# Define request and response models
+
+# --- Similarity Functions ---
+def load_embeddings(filename="graph_embeddings.pkl"):
+    """
+    Loads graph embeddings from the pickle file.
+    """
+    global EMBEDDINGS
+    if EMBEDDINGS:
+        return EMBEDDINGS
+
+    if os.path.exists(filename):
+        with open(filename, "rb") as f:
+            EMBEDDINGS = pickle.load(f)
+        return EMBEDDINGS
+    else:
+        raise FileNotFoundError(f"Embedding file {filename} not found")
+
+
+def cosine_similarity(vec1, vec2):
+    """
+    Calculates the cosine similarity between two vectors.
+    """
+    dot = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return dot / (norm1 * norm2)
+
+
+def get_similar_cards(selected_card_id, top_n=5):
+    """
+    Calculates similarity between the selected card and all other cards.
+    Returns a list of the top-n cards sorted by descending similarity.
+    """
+    if selected_card_id not in EMBEDDINGS:
+        return []
+
+    selected_embedding = EMBEDDINGS[selected_card_id]
+    similarities = {}
+    for card_id, emb in EMBEDDINGS.items():
+        if card_id == selected_card_id:
+            continue
+        sim = cosine_similarity(selected_embedding, emb)
+        similarities[card_id] = sim
+    sorted_cards = sorted(similarities.items(), key=lambda x: x[1], reverse=True)
+    return sorted_cards[:top_n]
+
+
+# --- Models for Similarity Endpoint ---
+class SimilarCard(BaseModel):
+    card_id: str
+    name: Optional[str] = None
+    type: Optional[str] = None
+    archetype: Optional[str] = None
+    similarity: float
+    image_url: Optional[str] = None
+
+
+class SimilarCardsResponse(BaseModel):
+    selected_card: Dict[str, Any]
+    similar_cards: List[SimilarCard]
+
+
+# Define request and response models for the existing API
 class Card(BaseModel):
     id: int
     name: Optional[str] = None
@@ -242,9 +311,92 @@ async def generate_deck(request: DeckRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- NEW API ENDPOINT for similar cards ---
+@app.get("/api/similar/{card_id}", response_model=SimilarCardsResponse)
+async def get_similar_cards_endpoint(card_id: str, top_n: int = 10):
+    """
+    Returns similar cards based on graph embeddings.
+    """
+    try:
+        # Load embeddings if not already loaded
+        if not EMBEDDINGS:
+            load_embeddings()
+
+        # Check if card exists in embeddings
+        if card_id not in EMBEDDINGS:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Card with ID {card_id} not found in embeddings"
+            )
+
+        # Load card info for names and other details
+        card_info = load_card_info()
+
+        # Get similar cards
+        similar = get_similar_cards(card_id, top_n=top_n)
+
+        # Get info about the selected card
+        selected_card_info = card_info.get(card_id, {"id": card_id, "name": "Unknown Card"})
+
+        # Format the similar cards
+        similar_cards = []
+        for similar_id, similarity in similar:
+            card_data = card_info.get(similar_id, {})
+            similar_cards.append(SimilarCard(
+                card_id=similar_id,
+                name=card_data.get("name", "Unknown Card"),
+                type=card_data.get("type", ""),
+                archetype=card_data.get("archetype", ""),
+                similarity=float(similarity),
+                image_url=card_data.get("card_images", [{}])[0].get("image_url") if card_data.get(
+                    "card_images") else None
+            ))
+
+        return SimilarCardsResponse(
+            selected_card=selected_card_info,
+            similar_cards=similar_cards
+        )
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        print(f"Error getting similar cards: {str(e)}")
+        print(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/")
+async def root():
+    return {
+        "message": "Yu-Gi-Oh Deck AI API",
+        "endpoints": [
+            "/api/generate-deck",
+            "/api/similar/{card_id}",
+            "/api/health"
+        ]
+    }
+
+
+# --- App startup event ---
+@app.on_event("startup")
+async def startup_event():
+    """
+    Load embeddings on startup to avoid delay on first request.
+    """
+    try:
+        print("Loading card embeddings...")
+        load_embeddings()
+        print(f"Loaded embeddings for {len(EMBEDDINGS)} cards")
+    except FileNotFoundError:
+        print("Warning: Embeddings file not found. /api/similar endpoint will not work until file is available.")
+    except Exception as e:
+        print(f"Error loading embeddings: {str(e)}")
+        print("The /api/similar endpoint may not work correctly.")
 
 
 if __name__ == "__main__":
