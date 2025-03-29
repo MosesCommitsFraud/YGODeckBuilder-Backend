@@ -1,0 +1,1216 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix ygo: <http://example.org/ygo#> .
+
+ygo:Deck_Deck123 a ygo:Deck ;
+    ygo:cardName "Deck123"^^xsd:string ;
+    ygo:hasCardSlot ygo:Deck_Deck123_Slot_extra_23545031,
+        ygo:Deck_Deck123_Slot_extra_27548199,
+        ygo:Deck_Deck123_Slot_extra_440556,
+        ygo:Deck_Deck123_Slot_extra_50588353,
+        ygo:Deck_Deck123_Slot_extra_50793215,
+        ygo:Deck_Deck123_Slot_extra_52687916,
+        ygo:Deck_Deck123_Slot_extra_59170782,
+        ygo:Deck_Deck123_Slot_extra_65170459,
+        ygo:Deck_Deck123_Slot_extra_71095768,
+        ygo:Deck_Deck123_Slot_extra_74371660,
+        ygo:Deck_Deck123_Slot_extra_79130389,
+        ygo:Deck_Deck123_Slot_extra_87188910,
+        ygo:Deck_Deck123_Slot_extra_88581108,
+        ygo:Deck_Deck123_Slot_extra_90809975,
+        ygo:Deck_Deck123_Slot_extra_9464441,
+        ygo:Deck_Deck123_Slot_main_10045474,
+        ygo:Deck_Deck123_Slot_main_1357146,
+        ygo:Deck_Deck123_Slot_main_13959634,
+        ygo:Deck_Deck123_Slot_main_14558127,
+        ygo:Deck_Deck123_Slot_main_18063928,
+        ygo:Deck_Deck123_Slot_main_1845204,
+        ygo:Deck_Deck123_Slot_main_21565445,
+        ygo:Deck_Deck123_Slot_main_21767650,
+        ygo:Deck_Deck123_Slot_main_21954587,
+        ygo:Deck_Deck123_Slot_main_22123627,
+        ygo:Deck_Deck123_Slot_main_22446869,
+        ygo:Deck_Deck123_Slot_main_2295440,
+        ygo:Deck_Deck123_Slot_main_26534688,
+        ygo:Deck_Deck123_Slot_main_3111207,
+        ygo:Deck_Deck123_Slot_main_37104630,
+        ygo:Deck_Deck123_Slot_main_38960450,
+        ygo:Deck_Deck123_Slot_main_40916023,
+        ygo:Deck_Deck123_Slot_main_4904812,
+        ygo:Deck_Deck123_Slot_main_55063751,
+        ygo:Deck_Deck123_Slot_main_58471134,
+        ygo:Deck_Deck123_Slot_main_66853752,
+        ygo:Deck_Deck123_Slot_main_67169062,
+        ygo:Deck_Deck123_Slot_main_69293721,
+        ygo:Deck_Deck123_Slot_main_706925,
+        ygo:Deck_Deck123_Slot_main_71978434,
+        ygo:Deck_Deck123_Slot_main_72060415,
+        ygo:Deck_Deck123_Slot_main_72932673,
+        ygo:Deck_Deck123_Slot_main_74298287,
+        ygo:Deck_Deck123_Slot_main_74311226,
+        ygo:Deck_Deck123_Slot_main_78868119,
+        ygo:Deck_Deck123_Slot_main_8495780,
+        ygo:Deck_Deck123_Slot_main_9126351,
+        ygo:Deck_Deck123_Slot_main_96682430,
+        ygo:Deck_Deck123_Slot_main_97268402,
+        ygo:Deck_Deck123_Slot_side_14532163,
+        ygo:Deck_Deck123_Slot_side_15693423,
+        ygo:Deck_Deck123_Slot_side_18144506,
+        ygo:Deck_Deck123_Slot_side_21954587,
+        ygo:Deck_Deck123_Slot_side_22076135,
+        ygo:Deck_Deck123_Slot_side_24940422,
+        ygo:Deck_Deck123_Slot_side_27204311,
+        ygo:Deck_Deck123_Slot_side_34267821,
+        ygo:Deck_Deck123_Slot_side_54693926,
+        ygo:Deck_Deck123_Slot_side_55063751,
+        ygo:Deck_Deck123_Slot_side_58471134,
+        ygo:Deck_Deck123_Slot_side_67750322,
+        ygo:Deck_Deck123_Slot_side_69293721,
+        ygo:Deck_Deck123_Slot_side_74298287,
+        ygo:Deck_Deck123_Slot_side_8267140 .
+
+ygo:Deck_Deck123_Ontology a owl:Ontology ;
+    owl:imports <file:///C%3A/Users/danth/PycharmProjects/YGODeckBuilder-Backend/ML-arch/Emedding/graph/ygo_ontology_base.ttl> .
+
+ygo:archetype a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:atk a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:integer .
+
+ygo:banGoat a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:banOcg a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:banTcg a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:cardAttribute a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:cardDesc a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:cardName a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:cardType a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:count a owl:DatatypeProperty ;
+    rdfs:label "number of copies of that Card in this Slot"^^xsd:string ;
+    rdfs:domain ygo:CardSlot ;
+    rdfs:range xsd:integer .
+
+ygo:defense a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:integer .
+
+ygo:effect_banish a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_change_position a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_copy a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_counter a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_deck_manipulation a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_destroy a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_discard a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_draw a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_equip a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_inflict_damage a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_modify_stats a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_negate a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_protect a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_recover_lp a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_return a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_search a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_send_gy a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_shuffle a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_special_summon a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:effect_token_summon a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:forCard a owl:ObjectProperty ;
+    rdfs:label "links a CardSlot to the Card it represents"^^xsd:string ;
+    rdfs:domain ygo:CardSlot ;
+    rdfs:range ygo:Card .
+
+ygo:frameType a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:humanReadableCardType a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:isStaple a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:boolean .
+
+ygo:level a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:integer .
+
+ygo:race a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:string .
+
+ygo:section a owl:DatatypeProperty ;
+    rdfs:label "which section of the Deck (main, extra, side) the slot is in"^^xsd:string ;
+    rdfs:domain ygo:CardSlot ;
+    rdfs:range xsd:string .
+
+ygo:ygoprodeckURL a owl:DatatypeProperty ;
+    rdfs:domain ygo:Card ;
+    rdfs:range xsd:anyURI .
+
+ygo:Card_10045474 a ygo:Card ;
+    ygo:cardName "Infinite Impermanence"^^xsd:string ;
+    ygo:effect_effect_negate true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/10045474.jpg"^^xsd:anyURI .
+
+ygo:Card_1357146 a ygo:Card ;
+    ygo:atk 100 ;
+    ygo:banTcg "Forbidden"^^xsd:string ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Ronintoadin"^^xsd:string ;
+    ygo:defense 2000 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 2 ;
+    ygo:referencedArchetypes "[\"Frog\", \"Synchro\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/1357146.jpg"^^xsd:anyURI .
+
+ygo:Card_13959634 a ygo:Card ;
+    ygo:atk 2800 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Moulinglacia the Elemental Lord"^^xsd:string ;
+    ygo:defense 2200 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 8 ;
+    ygo:referencedArchetypes "[\"Elemental Lord\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/13959634.jpg"^^xsd:anyURI .
+
+ygo:Card_14532163 a ygo:Card ;
+    ygo:banTcg "Semi-Limited"^^xsd:string ;
+    ygo:cardName "Lightning Storm"^^xsd:string ;
+    ygo:effect_effect_destroy true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/14532163.jpg"^^xsd:anyURI .
+
+ygo:Card_14558127 a ygo:Card ;
+    ygo:atk 0 ;
+    ygo:cardAttribute "FIRE"^^xsd:string ;
+    ygo:cardName "Ash Blossom & Joyous Spring"^^xsd:string ;
+    ygo:defense 1800 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/14558127.jpg"^^xsd:anyURI .
+
+ygo:Card_15693423 a ygo:Card ;
+    ygo:cardName "Evenly Matched"^^xsd:string ;
+    ygo:effect_effect_banish true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/15693423.jpg"^^xsd:anyURI .
+
+ygo:Card_18063928 a ygo:Card ;
+    ygo:atk 800 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Tin Goldfish"^^xsd:string ;
+    ygo:defense 2000 ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/18063928.jpg"^^xsd:anyURI .
+
+ygo:Card_18144506 a ygo:Card .
+
+ygo:Card_1845204 a ygo:Card ;
+    ygo:banOcg "Limited"^^xsd:string ;
+    ygo:banTcg "Limited"^^xsd:string ;
+    ygo:cardName "Instant Fusion"^^xsd:string ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:referencedArchetypes "[\"Fusion\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/1845204.jpg"^^xsd:anyURI .
+
+ygo:Card_21565445 a ygo:Card ;
+    ygo:atk 800 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Neptabyss, the Atlantean Prince"^^xsd:string ;
+    ygo:defense 0 ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 1 ;
+    ygo:referencedArchetypes "[\"Atlantean\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/21565445.jpg"^^xsd:anyURI .
+
+ygo:Card_21767650 a ygo:Card ;
+    ygo:atk 100 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssmander"^^xsd:string ;
+    ygo:defense 2000 ;
+    ygo:effect_effect_banish true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/21767650.jpg"^^xsd:anyURI .
+
+ygo:Card_22076135 a ygo:Card ;
+    ygo:atk 1700 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssturge"^^xsd:string ;
+    ygo:defense 1100 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/22076135.jpg"^^xsd:anyURI .
+
+ygo:Card_22123627 a ygo:Card ;
+    ygo:cardName "Moray of Greed"^^xsd:string ;
+    ygo:effect_effect_draw true ;
+    ygo:effect_effect_shuffle true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/22123627.jpg"^^xsd:anyURI .
+
+ygo:Card_22446869 a ygo:Card ;
+    ygo:atk 1700 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssteus"^^xsd:string ;
+    ygo:defense 2400 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 7 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/22446869.jpg"^^xsd:anyURI .
+
+ygo:Card_2295440 a ygo:Card ;
+    ygo:banOcg "Limited"^^xsd:string ;
+    ygo:banTcg "Limited"^^xsd:string ;
+    ygo:cardName "One for One"^^xsd:string ;
+    ygo:effect_effect_send_gy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/2295440.jpg"^^xsd:anyURI .
+
+ygo:Card_23545031 a ygo:Card ;
+    ygo:atk 1600 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssalacia"^^xsd:string ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 0 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Fish\", \"Sea Serpent\", \"Aqua\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/23545031.jpg"^^xsd:anyURI .
+
+ygo:Card_24940422 a ygo:Card ;
+    ygo:banTcg "Limited"^^xsd:string ;
+    ygo:cardName "Sekka's Light"^^xsd:string ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_draw true ;
+    ygo:effect_effect_shuffle true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/24940422.jpg"^^xsd:anyURI .
+
+ygo:Card_26534688 a ygo:Card ;
+    ygo:cardName "Magellanica, the Deep Sea City"^^xsd:string ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:referencedArchetypes "[\"Synchro\", \"Umi\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/26534688.jpg"^^xsd:anyURI .
+
+ygo:Card_27204311 a ygo:Card ;
+    ygo:atk 3000 ;
+    ygo:cardAttribute "LIGHT"^^xsd:string ;
+    ygo:cardName "Nibiru, the Primal Being"^^xsd:string ;
+    ygo:defense 600 ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:effect_effect_token_summon true ;
+    ygo:level 11 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Rock\", \"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/27204311.jpg"^^xsd:anyURI .
+
+ygo:Card_27548199 a ygo:Card ;
+    ygo:atk 3000 ;
+    ygo:banTcg "Forbidden"^^xsd:string ;
+    ygo:cardAttribute "DARK"^^xsd:string ;
+    ygo:cardName "Borreload Savage Dragon"^^xsd:string ;
+    ygo:defense 2500 ;
+    ygo:effect_effect_counter true ;
+    ygo:effect_effect_equip true ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_negate true ;
+    ygo:level 8 ;
+    ygo:referencedArchetypes "[\"Synchro\", \"Borrel\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Dragon\", \"Counter\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/27548199.jpg"^^xsd:anyURI .
+
+ygo:Card_3111207 a ygo:Card ;
+    ygo:atk 0 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Lappis Dragon"^^xsd:string ;
+    ygo:defense 2600 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 5 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Dragon\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/3111207.jpg"^^xsd:anyURI .
+
+ygo:Card_34267821 a ygo:Card ;
+    ygo:atk 1700 ;
+    ygo:cardAttribute "LIGHT"^^xsd:string ;
+    ygo:cardName "Artifact Lancea"^^xsd:string ;
+    ygo:defense 2300 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 5 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/34267821.jpg"^^xsd:anyURI .
+
+ygo:Card_37104630 a ygo:Card ;
+    ygo:atk 0 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Atlantean Heavy Infantry"^^xsd:string ;
+    ygo:defense 1600 ;
+    ygo:effect_effect_destroy true ;
+    ygo:level 2 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Sea Serpent\", \"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/37104630.jpg"^^xsd:anyURI .
+
+ygo:Card_38960450 a ygo:Card ;
+    ygo:cardName "Armory Call"^^xsd:string ;
+    ygo:effect_effect_equip true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Equip\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/38960450.jpg"^^xsd:anyURI .
+
+ygo:Card_40916023 a ygo:Card ;
+    ygo:atk 1600 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Aqua Spirit"^^xsd:string ;
+    ygo:defense 1200 ;
+    ygo:effect_effect_change_position true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/40916023.jpg"^^xsd:anyURI .
+
+ygo:Card_440556 a ygo:Card ;
+    ygo:atk 2600 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Bahamut Shark"^^xsd:string ;
+    ygo:defense 2100 ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[\"Xyz\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/440556.jpg"^^xsd:anyURI .
+
+ygo:Card_4904812 a ygo:Card ;
+    ygo:atk 1200 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Genex Undine"^^xsd:string ;
+    ygo:defense 600 ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Genex\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/4904812.jpg"^^xsd:anyURI .
+
+ygo:Card_50588353 a ygo:Card ;
+    ygo:atk 1500 ;
+    ygo:banOcg "Forbidden"^^xsd:string ;
+    ygo:banTcg "Forbidden"^^xsd:string ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Crystron Halqifibrax"^^xsd:string ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 0 ;
+    ygo:referencedArchetypes "[\"Synchro\", \"Crystron\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/50588353.jpg"^^xsd:anyURI .
+
+ygo:Card_50793215 a ygo:Card ;
+    ygo:atk 1500 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Deep Sea Prima Donna"^^xsd:string ;
+    ygo:defense 2700 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_search true ;
+    ygo:effect_effect_shuffle true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 7 ;
+    ygo:referencedArchetypes "[\"Synchro\", \"Deep Sea\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/50793215.jpg"^^xsd:anyURI .
+
+ygo:Card_52687916 a ygo:Card ;
+    ygo:atk 2700 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Trishula, Dragon of the Ice Barrier"^^xsd:string ;
+    ygo:defense 2000 ;
+    ygo:effect_effect_banish true ;
+    ygo:level 9 ;
+    ygo:referencedArchetypes "[\"Synchro\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/52687916.jpg"^^xsd:anyURI .
+
+ygo:Card_54693926 a ygo:Card ;
+    ygo:cardName "Dark Ruler No More"^^xsd:string ;
+    ygo:effect_effect_inflict_damage true ;
+    ygo:effect_effect_negate true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/54693926.jpg"^^xsd:anyURI .
+
+ygo:Card_59170782 a ygo:Card ;
+    ygo:atk 1600 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abysstrite"^^xsd:string ;
+    ygo:defense 2800 ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Xyz\", \"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/59170782.jpg"^^xsd:anyURI .
+
+ygo:Card_65170459 a ygo:Card ;
+    ygo:atk 1400 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mistar Boy"^^xsd:string ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:level 0 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/65170459.jpg"^^xsd:anyURI .
+
+ygo:Card_66853752 a ygo:Card ;
+    ygo:atk 200 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Fishborg Launcher"^^xsd:string ;
+    ygo:defense 100 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 1 ;
+    ygo:referencedArchetypes "[\"Synchro\", \"Fishborg\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/66853752.jpg"^^xsd:anyURI .
+
+ygo:Card_67169062 a ygo:Card ;
+    ygo:cardName "Pot of Avarice"^^xsd:string ;
+    ygo:effect_effect_draw true ;
+    ygo:effect_effect_shuffle true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/67169062.jpg"^^xsd:anyURI .
+
+ygo:Card_67750322 a ygo:Card ;
+    ygo:atk 1700 ;
+    ygo:cardAttribute "DARK"^^xsd:string ;
+    ygo:cardName "Skull Meister"^^xsd:string ;
+    ygo:defense 400 ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/67750322.jpg"^^xsd:anyURI .
+
+ygo:Card_706925 a ygo:Card ;
+    ygo:atk 1400 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Atlantean Marksman"^^xsd:string ;
+    ygo:defense 0 ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_inflict_damage true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Atlantean\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Sea Serpent\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/706925.jpg"^^xsd:anyURI .
+
+ygo:Card_71095768 a ygo:Card ;
+    ygo:atk 1500 ;
+    ygo:cardAttribute "LIGHT"^^xsd:string ;
+    ygo:cardName "Bujinki Ahashima"^^xsd:string ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:referencedArchetypes "[\"Xyz\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/71095768.jpg"^^xsd:anyURI .
+
+ygo:Card_71978434 a ygo:Card ;
+    ygo:atk 1200 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Deep Sea Minstrel"^^xsd:string ;
+    ygo:defense 1500 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Deep Sea\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/71978434.jpg"^^xsd:anyURI .
+
+ygo:Card_72060415 a ygo:Card ;
+    ygo:cardName "Deep Sea Aria"^^xsd:string ;
+    ygo:effect_effect_banish true ;
+    ygo:referencedArchetypes "[\"Deep Sea\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Sea Serpent\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/72060415.jpg"^^xsd:anyURI .
+
+ygo:Card_72932673 a ygo:Card ;
+    ygo:cardName "Abyss-scale of the Mizuchi"^^xsd:string ;
+    ygo:effect_effect_equip true ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Equip\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/72932673.jpg"^^xsd:anyURI .
+
+ygo:Card_74311226 a ygo:Card ;
+    ygo:atk 1800 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Atlantean Dragoons"^^xsd:string ;
+    ygo:defense 0 ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[\"Atlantean\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Sea Serpent\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/74311226.jpg"^^xsd:anyURI .
+
+ygo:Card_74371660 a ygo:Card ;
+    ygo:atk 2800 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssgaios"^^xsd:string ;
+    ygo:defense 1600 ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_negate true ;
+    ygo:level 7 ;
+    ygo:referencedArchetypes "[\"Xyz\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/74371660.jpg"^^xsd:anyURI .
+
+ygo:Card_78868119 a ygo:Card ;
+    ygo:atk 200 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Deep Sea Diva"^^xsd:string ;
+    ygo:defense 400 ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 2 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[\"Sea Serpent\", \"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/78868119.jpg"^^xsd:anyURI .
+
+ygo:Card_79130389 a ygo:Card ;
+    ygo:atk 2000 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Marincess Coral Anemone"^^xsd:string ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:referencedArchetypes "[\"Marincess\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/79130389.jpg"^^xsd:anyURI .
+
+ygo:Card_8267140 a ygo:Card ;
+    ygo:cardName "Cosmic Cyclone"^^xsd:string ;
+    ygo:effect_effect_banish true ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/8267140.jpg"^^xsd:anyURI .
+
+ygo:Card_8495780 a ygo:Card ;
+    ygo:atk 0 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Deep Sea Artisan"^^xsd:string ;
+    ygo:defense 500 ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 1 ;
+    ygo:referencedArchetypes "[\"Deep Sea\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/8495780.jpg"^^xsd:anyURI .
+
+ygo:Card_87188910 a ygo:Card ;
+    ygo:atk 1000 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Ravenous Crocodragon Archethys"^^xsd:string ;
+    ygo:defense 1000 ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_draw true ;
+    ygo:effect_effect_modify_stats true ;
+    ygo:level 9 ;
+    ygo:referencedArchetypes "[\"Synchro\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/87188910.jpg"^^xsd:anyURI .
+
+ygo:Card_88581108 a ygo:Card ;
+    ygo:atk 3000 ;
+    ygo:banOcg "Forbidden"^^xsd:string ;
+    ygo:banTcg "Forbidden"^^xsd:string ;
+    ygo:cardAttribute "DARK"^^xsd:string ;
+    ygo:cardName "True King of All Calamities"^^xsd:string ;
+    ygo:defense 3000 ;
+    ygo:effect_effect_destroy true ;
+    ygo:level 9 ;
+    ygo:referencedArchetypes "[\"True Draco\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/88581108.jpg"^^xsd:anyURI .
+
+ygo:Card_90809975 a ygo:Card ;
+    ygo:atk 2200 ;
+    ygo:banOcg "Forbidden"^^xsd:string ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Toadally Awesome"^^xsd:string ;
+    ygo:defense 0 ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 2 ;
+    ygo:referencedArchetypes "[\"Frog\", \"Xyz\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Aqua\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/90809975.jpg"^^xsd:anyURI .
+
+ygo:Card_9126351 a ygo:Card ;
+    ygo:atk 1000 ;R
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Swap Frog"^^xsd:string ;
+    ygo:defense 500 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_return true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 2 ;
+    ygo:referencedArchetypes "[\"Frog\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Aqua\", \"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/9126351.jpg"^^xsd:anyURI .
+
+ygo:Card_9464441 a ygo:Card ;
+    ygo:atk 3000 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Adamancipator Risen - Dragite"^^xsd:string ;
+    ygo:defense 2200 ;
+    ygo:effect_effect_deck_manipulation true ;
+    ygo:effect_effect_destroy true ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_return true ;
+    ygo:level 8 ;
+    ygo:referencedArchetypes "[\"Adamancipator\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Rock\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/9464441.jpg"^^xsd:anyURI .
+
+ygo:Card_96682430 a ygo:Card ;
+    ygo:atk 1300 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abysshilde"^^xsd:string ;
+    ygo:defense 400 ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/96682430.jpg"^^xsd:anyURI .
+
+ygo:Card_97268402 a ygo:Card ;
+    ygo:atk 0 ;
+    ygo:cardAttribute "LIGHT"^^xsd:string ;
+    ygo:cardName "Effect Veiler"^^xsd:string ;
+    ygo:defense 0 ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_send_gy true ;
+    ygo:level 1 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/97268402.jpg"^^xsd:anyURI .
+
+ygo:Deck_Deck123_Slot_extra_23545031 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_23545031 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_27548199 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_27548199 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_440556 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_440556 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_50588353 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_50588353 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_50793215 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_50793215 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_52687916 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_52687916 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_59170782 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_59170782 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_65170459 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_65170459 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_71095768 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_71095768 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_74371660 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_74371660 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_79130389 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_79130389 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_87188910 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_87188910 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_88581108 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_88581108 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_90809975 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_90809975 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_extra_9464441 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_9464441 ;
+    ygo:section "extra"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_10045474 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_10045474 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_1357146 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_1357146 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_13959634 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_13959634 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_14558127 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_14558127 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_18063928 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_18063928 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_1845204 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_1845204 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_21565445 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_21565445 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_21767650 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_21767650 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_21954587 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_21954587 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_22123627 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_22123627 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_22446869 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_22446869 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_2295440 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_2295440 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_26534688 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_26534688 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_3111207 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_3111207 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_37104630 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_37104630 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_38960450 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_38960450 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_40916023 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_40916023 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_4904812 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_4904812 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_55063751 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_55063751 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_58471134 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_58471134 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_66853752 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_66853752 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_67169062 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_67169062 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_69293721 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_69293721 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_706925 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_706925 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_71978434 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_71978434 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_72060415 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_72060415 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_72932673 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_72932673 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_74298287 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_74298287 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_74311226 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_74311226 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_78868119 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_78868119 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_8495780 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_8495780 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_9126351 a ygo:CardSlot ;
+    ygo:count 3 ;
+    ygo:forCard ygo:Card_9126351 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_96682430 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_96682430 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_main_97268402 a ygo:CardSlot ;
+    ygo:count 2 ;
+    ygo:forCard ygo:Card_97268402 ;
+    ygo:section "main"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_14532163 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_14532163 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_15693423 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_15693423 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_18144506 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_18144506 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_21954587 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_21954587 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_22076135 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_22076135 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_24940422 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_24940422 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_27204311 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_27204311 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_34267821 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_34267821 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_54693926 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_54693926 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_55063751 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_55063751 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_58471134 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_58471134 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_67750322 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_67750322 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_69293721 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_69293721 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_74298287 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_74298287 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Deck_Deck123_Slot_side_8267140 a ygo:CardSlot ;
+    ygo:count 1 ;
+    ygo:forCard ygo:Card_8267140 ;
+    ygo:section "side"^^xsd:string .
+
+ygo:Card_21954587 a ygo:Card ;
+    ygo:atk 2400 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssmegalo"^^xsd:string ;
+    ygo:defense 1900 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 7 ;
+    ygo:referencedArchetypes "[]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/21954587.jpg"^^xsd:anyURI .
+
+ygo:Card_55063751 a ygo:Card ;
+    ygo:atk 2200 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Gameciel, the Sea Turtle Kaiju"^^xsd:string ;
+    ygo:defense 3000 ;
+    ygo:effect_effect_banish true ;
+    ygo:effect_effect_counter true ;
+    ygo:effect_effect_negate true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 8 ;
+    ygo:referencedArchetypes "[\"Kaiju\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/55063751.jpg"^^xsd:anyURI .
+
+ygo:Card_58471134 a ygo:Card ;
+    ygo:atk 1600 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abysspike"^^xsd:string ;
+    ygo:defense 800 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 4 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[\"Normal\"]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/58471134.jpg"^^xsd:anyURI .
+
+ygo:Card_69293721 a ygo:Card ;
+    ygo:atk 1400 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssgunde"^^xsd:string ;
+    ygo:defense 800 ;
+    ygo:effect_effect_discard true ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/69293721.jpg"^^xsd:anyURI .
+
+ygo:Card_74298287 a ygo:Card ;
+    ygo:atk 1000 ;
+    ygo:cardAttribute "WATER"^^xsd:string ;
+    ygo:cardName "Mermail Abyssdine"^^xsd:string ;
+    ygo:defense 200 ;
+    ygo:effect_effect_special_summon true ;
+    ygo:level 3 ;
+    ygo:referencedArchetypes "[\"Mermail\"]"^^xsd:string ;
+    ygo:referencedRaces "[]"^^xsd:string ;
+    ygo:ygoprodeckURL "https://images.ygoprodeck.com/images/cards_small/74298287.jpg"^^xsd:anyURI .
+
+ygo:CardSlot a owl:Class ;
+    rdfs:label "A slot in a Deck referencing a certain Card with a count"^^xsd:string .
+
+ygo:Card a owl:Class ;
+    rdfs:label "A generic Yu-Gi-Oh! Card entity"^^xsd:string .
+
