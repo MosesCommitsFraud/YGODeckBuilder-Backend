@@ -107,7 +107,7 @@ class SimilarCardsResponse(BaseModel):
 
 
 # Define request and response models for the existing API
-class Card(BaseModel):
+class CardSchema(BaseModel):
     id: int
     name: Optional[str] = None
     type: Optional[str] = None
@@ -121,7 +121,7 @@ class Card(BaseModel):
 
 class DeckEntry(BaseModel):
     deckEntryId: str
-    card: Card
+    card: CardSchema
 
 
 class DeckRequest(BaseModel):
